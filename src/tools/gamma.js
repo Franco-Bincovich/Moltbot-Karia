@@ -21,6 +21,7 @@ async function generatePresentation(topic, details) {
       textMode: 'generate',
       format: 'presentation',
       numCards: 10,
+      exportAs: 'pdf',
     }),
   });
 
@@ -35,6 +36,7 @@ async function generatePresentation(topic, details) {
 
   if (!generationId) {
     console.warn('[gamma] No se recibió generationId. Respuesta:', JSON.stringify(createData));
+    if (createData.exportUrl) return `Presentación lista. Descargá el PDF acá: ${createData.exportUrl}`;
     if (createData.gammaUrl ?? createData.url) {
       return `Presentación creada. Accedela acá: ${createData.gammaUrl ?? createData.url}`;
     }
@@ -58,8 +60,10 @@ async function generatePresentation(topic, details) {
     console.log(`[gamma] status: ${statusData.status}`);
 
     if (statusData.status === 'completed') {
-      const url = statusData.gammaUrl ?? statusData.url;
-      if (url) return `Presentación creada. Accedela acá: ${url}`;
+      const exportUrl = statusData.exportUrl;
+      const fallbackUrl = statusData.gammaUrl ?? statusData.url;
+      if (exportUrl) return `Presentación lista. Descargá el PDF acá: ${exportUrl}`;
+      if (fallbackUrl) return `Presentación creada (PDF no disponible). Accedela acá: ${fallbackUrl}`;
       console.warn('[gamma] completed pero sin URL. Data:', JSON.stringify(statusData));
     }
 
