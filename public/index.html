@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moltbot KarIA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="chat-container">
+    <header class="chat-header">
+      <div class="header-logo">
+        <span class="logo-icon">⚡</span>
+        <div>
+          <h1>Moltbot KarIA</h1>
+          <span class="subtitle">Desarrollado por KarIA</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="chat-messages" id="messages">
+      <div class="message bot">
+        <div class="message-content">
+          Hola, soy <strong>Moltbot KarIA</strong>. Puedo ayudarte con:<br><br>
+          <strong>1.</strong> Generar presentaciones en Gamma.<br>
+          <strong>2.</strong> Buscar precios y promociones de electrodomésticos en la competencia (Frávega, Oncity, Genecio).<br><br>
+          ¿En qué puedo ayudarte?
+        </div>
+      </div>
+    </div>
+
+    <form class="chat-input" id="chatForm">
+      <input
+        type="text"
+        id="userInput"
+        placeholder="Escribí tu mensaje..."
+        autocomplete="off"
+        required
+      />
+      <button type="submit" id="sendBtn">Enviar</button>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
