@@ -118,21 +118,25 @@ function formatMarkdown(text) {
   // Bold **text**
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-  // Links [text](url)
+  // Links [text](url) — supports both absolute and relative URLs
   html = html.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener" style="color:#7c6fe0">$1</a>'
+    /\[([^\]]+)\]\(([^\s)]+)\)/g,
+    (match, text, url) => {
+      const isDownload = url.startsWith('/download/');
+      const extra = isDownload ? ' download' : ' target="_blank" rel="noopener"';
+      return `<a href="${url}"${extra} style="color:#7c6fe0">${text}</a>`;
+    }
   );
 
-  // Bare URLs
+  // Bare URLs (not already inside href="...")
   html = html.replace(
     /(?<!")(https?:\/\/[^\s<]+)/g,
     '<a href="$1" target="_blank" rel="noopener" style="color:#7c6fe0">$1</a>'
   );
 
-  // Download links (/download/filename)
+  // Bare download links not already in an <a> tag
   html = html.replace(
-    /(?<!")(\/download\/[^\s<]+)/g,
+    /(?<!")(\/download\/[^\s<)]+)/g,
     '<a href="$1" download style="color:#7c6fe0">$1</a>'
   );
 
