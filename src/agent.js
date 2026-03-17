@@ -2,6 +2,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { searchCompetitors } = require('./tools/perplexity');
 const { generatePresentation } = require('./tools/gamma');
 const { analyzeExcel } = require('./tools/excel');
+const { generateWord, generateExcel: generateExcelFile } = require('./tools/export');
 
 const client = new Anthropic();
 
@@ -13,6 +14,12 @@ REGLAS:
 - No realizás compras ni accedés a sitios con login.
 - Si el usuario menciona un producto (aunque sea en términos generales como "lavarropas Samsung 9kg"), buscás directamente sin pedir más detalles.
 
+REGLA CRÍTICA — CONCISIÓN:
+- Respondé SOLO lo que el usuario preguntó. No agregues información extra no solicitada.
+- Sé directo y conciso: máximo 3-4 párrafos o una tabla cuando corresponda.
+- No agregues recomendaciones, sugerencias ni consejos a menos que el usuario los pida explícitamente.
+- No repitas información que ya diste en mensajes anteriores de la conversación.
+
 REGLA CRÍTICA SOBRE RESULTADOS DE HERRAMIENTAS:
 Cuando una herramienta devuelve datos, SIEMPRE mostrá esos datos al usuario de forma completa y literal.
 Nunca digas "no encontré información" ni "no pude obtener resultados" si la herramienta devolvió contenido.
@@ -23,6 +30,8 @@ CAPACIDADES:
 1. **Presentaciones**: Podés generar presentaciones usando Gamma. Cuando el usuario pida una presentación, usá la herramienta "generate_presentation".
 2. **Búsqueda de competencia**: Podés buscar precios, stock y promociones de electrodomésticos usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta.
 3. **Análisis de Excel**: Si el usuario adjuntó un archivo Excel, actuás como consultor de datos. Si el usuario no especificó qué analizar, preguntale qué aspecto le interesa (horas por persona, costos, rankings, etc.). Si especificó una pregunta, usá la herramienta "analyze_excel" directamente.
+4. **Exportar a Word**: Podés generar archivos .docx con la herramienta "export_to_word". Usala cuando el usuario pida exportar contenido a Word o documento.
+5. **Exportar a Excel**: Podés generar archivos .xlsx con la herramienta "export_to_excel". Usala cuando el usuario pida exportar datos a una planilla o Excel.
 
 Cuando necesites usar una herramienta, invocala. No simules resultados.`;
 
@@ -80,6 +89,54 @@ const TOOLS = [
         },
       },
       required: ['question', 'analysisType'],
+    },
+  },
+  {
+    name: 'export_to_word',
+    description:
+      'Genera un archivo Word (.docx) con el contenido proporcionado y devuelve un link de descarga. Usá esta herramienta cuando el usuario pida exportar texto, análisis o informes a Word/documento.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: 'Contenido a incluir en el documento Word. Puede incluir markdown básico (# títulos, **bold**, listas con -).',
+        },
+        filename: {
+          type: 'string',
+          description: 'Nombre descriptivo para el archivo (sin extensión). Ej: "informe_ventas", "analisis_costos".',
+        },
+      },
+      required: ['content', 'filename'],
+    },
+  },
+  {
+    name: 'export_to_excel',
+    description:
+      'Genera un archivo Excel (.xlsx) con datos tabulares y devuelve un link de descarga. Usá esta herramienta cuando el usuario pida exportar datos a planilla/Excel.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        headers: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Nombres de las columnas. Ej: ["Producto", "Precio", "Stock"].',
+        },
+        rows: {
+          type: 'array',
+          items: { type: 'array', items: { type: 'string' } },
+          description: 'Filas de datos. Cada fila es un array de strings. Ej: [["Lavarropas", "$500.000", "Sí"]].',
+        },
+        filename: {
+          type: 'string',
+          description: 'Nombre descriptivo para el archivo (sin extensión). Ej: "comparativa_precios".',
+        },
+        sheetName: {
+          type: 'string',
+          description: 'Nombre de la hoja del Excel. Por defecto "Datos".',
+        },
+      },
+      required: ['headers', 'rows', 'filename'],
     },
   },
 ];
@@ -151,6 +208,21 @@ async function handleChat(userMessage, history, excelContext = null) {
             result = await analyzeExcel(excelContext, block.input.question, block.input.analysisType);
             console.log(`[agent] analyze_excel completado. Resultado (primeros 300 chars): ${String(result).slice(0, 300)}`);
           }
+        } else if (block.name === 'export_to_word') {
+          const filePath = await generateWord(block.input.content, block.input.filename);
+          const fileName = require('path').basename(filePath);
+          result = `Archivo Word generado. Link de descarga: /download/${fileName}`;
+          console.log(`[agent] export_to_word completado: ${filePath}`);
+        } else if (block.name === 'export_to_excel') {
+          const data = {
+            headers: block.input.headers,
+            rows: block.input.rows,
+            sheetName: block.input.sheetName || 'Datos',
+          };
+          const filePath = await generateExcelFile(data, block.input.filename);
+          const fileName = require('path').basename(filePath);
+          result = `Archivo Excel generado. Link de descarga: /download/${fileName}`;
+          console.log(`[agent] export_to_excel completado: ${filePath}`);
         } else {
           result = `Herramienta desconocida: ${block.name}`;
           console.warn(`[agent] Tool desconocida: ${block.name}`);

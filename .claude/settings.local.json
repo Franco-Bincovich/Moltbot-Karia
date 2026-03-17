@@ -6,7 +6,8 @@
       "Bash(/usr/local/bin/node --version)",
       "Read(//Users/franbincovich/n/bin/**)",
       "Read(//Users/franbincovich/.nvm/versions/**)",
-      "Read(//opt/homebrew/bin/**)"
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//opt/**)"
     ]
   }
 }

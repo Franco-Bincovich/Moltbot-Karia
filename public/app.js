@@ -130,6 +130,12 @@ function formatMarkdown(text) {
     '<a href="$1" target="_blank" rel="noopener" style="color:#7c6fe0">$1</a>'
   );
 
+  // Download links (/download/filename)
+  html = html.replace(
+    /(?<!")(\/download\/[^\s<]+)/g,
+    '<a href="$1" download style="color:#7c6fe0">$1</a>'
+  );
+
   // Tables
   html = convertTables(html);
 
