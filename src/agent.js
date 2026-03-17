@@ -30,8 +30,13 @@ CAPACIDADES:
 1. **Presentaciones**: Podés generar presentaciones usando Gamma. Cuando el usuario pida una presentación, usá la herramienta "generate_presentation".
 2. **Búsqueda de competencia**: Podés buscar precios, stock y promociones de electrodomésticos usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta.
 3. **Análisis de Excel**: Si el usuario adjuntó un archivo Excel, actuás como consultor de datos. Si el usuario no especificó qué analizar, preguntale qué aspecto le interesa (horas por persona, costos, rankings, etc.). Si especificó una pregunta, usá la herramienta "analyze_excel" directamente.
-4. **Exportar a Word**: Podés generar archivos .docx con la herramienta "export_to_word". Usala cuando el usuario pida exportar contenido a Word o documento.
-5. **Exportar a Excel**: Podés generar archivos .xlsx con la herramienta "export_to_excel". Usala cuando el usuario pida exportar datos a una planilla o Excel.
+4. **Exportar a Word/Excel**: Podés generar archivos .docx y .xlsx para descargar.
+
+REGLA CRÍTICA — EXPORTACIÓN DE DOCUMENTOS:
+- NUNCA generes un documento Word o Excel por tu cuenta. Solo hacelo si el usuario lo pide EXPLÍCITAMENTE con palabras como "exportar", "descargar", "generar documento", "pasame en Word", "pasame en Excel", "haceme un archivo", etc.
+- Cuando el usuario SÍ pide un documento, PRIMERO preguntá qué quiere que contenga antes de generarlo. Ejemplo: "¿Qué información querés que incluya en el documento? ¿Solo los datos de X o un resumen general?"
+- Solo DESPUÉS de que el usuario confirme el contenido, generá el archivo y compartí el link de descarga.
+- Si el usuario ya especificó exactamente qué quiere en el documento en el mismo mensaje donde lo pide, no hace falta preguntar de nuevo — generalo directamente.
 
 Cuando necesites usar una herramienta, invocala. No simules resultados.`;
 
@@ -94,7 +99,7 @@ const TOOLS = [
   {
     name: 'export_to_word',
     description:
-      'Genera un archivo Word (.docx) con el contenido proporcionado y devuelve un link de descarga. Usá esta herramienta cuando el usuario pida exportar texto, análisis o informes a Word/documento.',
+      'Genera un archivo Word (.docx) y devuelve un link de descarga. SOLO usá esta herramienta cuando el usuario pidió EXPLÍCITAMENTE exportar a Word/documento Y ya confirmó qué contenido incluir.',
     input_schema: {
       type: 'object',
       properties: {
@@ -113,7 +118,7 @@ const TOOLS = [
   {
     name: 'export_to_excel',
     description:
-      'Genera un archivo Excel (.xlsx) con datos tabulares y devuelve un link de descarga. Usá esta herramienta cuando el usuario pida exportar datos a planilla/Excel.',
+      'Genera un archivo Excel (.xlsx) con datos tabulares y devuelve un link de descarga. SOLO usá esta herramienta cuando el usuario pidió EXPLÍCITAMENTE exportar a planilla/Excel Y ya confirmó qué datos incluir.',
     input_schema: {
       type: 'object',
       properties: {
