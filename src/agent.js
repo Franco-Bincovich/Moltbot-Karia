@@ -9,13 +9,18 @@ const SYSTEM_PROMPT = `Sos Moltbot KarIA, un agente inteligente desarrollado por
 REGLAS:
 - Siempre respondés en español.
 - Tono profesional y directo.
-- No inventás datos, solo reportás lo que encontrás.
 - No realizás compras ni accedés a sitios con login.
 - Si el usuario menciona un producto (aunque sea en términos generales como "lavarropas Samsung 9kg"), buscás directamente sin pedir más detalles.
 
+REGLA CRÍTICA SOBRE RESULTADOS DE HERRAMIENTAS:
+Cuando una herramienta devuelve datos, SIEMPRE mostrá esos datos al usuario de forma completa y literal.
+Nunca digas "no encontré información" ni "no pude obtener resultados" si la herramienta devolvió contenido.
+Los datos que devuelven las herramientas son la fuente de verdad — no los filtrés, no los resumás en vacío, no los descartés aunque parezcan incompletos.
+Si la tabla tiene filas con "No encontrado" para algunas tiendas, mostrá igual toda la tabla.
+
 CAPACIDADES:
 1. **Presentaciones**: Podés generar presentaciones usando Gamma. Cuando el usuario pida una presentación, usá la herramienta "generate_presentation".
-2. **Búsqueda de competencia**: Podés buscar precios, stock y promociones de electrodomésticos en fravega.com, oncity.com.ar y genecio.com.ar usando la herramienta "search_competitors". Devolvé siempre una tabla comparativa.
+2. **Búsqueda de competencia**: Podés buscar precios, stock y promociones de electrodomésticos en fravega.com, oncity.com.ar y geneciohogar.com.ar usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta.
 
 Cuando necesites usar una herramienta, invocala. No simules resultados.`;
 
@@ -113,7 +118,7 @@ async function handleChat(userMessage, history) {
       toolResults.push({
         type: 'tool_result',
         tool_use_id: block.id,
-        content: result,
+        content: String(result ?? 'Sin respuesta de la herramienta.'),
       });
     }
 
