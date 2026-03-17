@@ -1,10 +1,16 @@
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 
-const STORES = ['Fravega', 'OnCity', 'Genecio Hogar', 'Naldo', 'Cetrogar'];
+const STORE_DOMAINS = [
+  'fravega.com',
+  'oncity.com.ar',
+  'geneciohogar.com.ar',
+  'naldo.com.ar',
+  'cetrogar.com.ar',
+];
 
 function buildSearchQuery(query) {
-  const storeList = STORES.join(', ');
-  return `${query} precio stock cuotas ${storeList} Argentina 2025`;
+  const domainList = STORE_DOMAINS.join(', ');
+  return `¿Cuál es el precio actual de ${query} en ${domainList}? Incluí stock disponible y opciones de cuotas sin interés.`;
 }
 
 async function searchCompetitors(query) {
@@ -13,7 +19,7 @@ async function searchCompetitors(query) {
     return 'Error: PERPLEXITY_API_KEY no configurada.';
   }
 
-  const storeList = STORES.join(', ');
+  const storeList = STORE_DOMAINS.join(', ');
   const systemPrompt = `Sos un asistente de investigación de mercado argentino especializado en electrodomésticos.
 Debés buscar el producto indicado en estos sitios de venta online: fravega.com, oncity.com, geneciohogar.com.ar, naldo.com.ar, cetrogar.com.ar.
 Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Promociones/Cuotas | URL del producto.
