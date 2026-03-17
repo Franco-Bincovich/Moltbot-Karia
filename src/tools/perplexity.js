@@ -1,14 +1,10 @@
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 
-const SITES = [
-  'fravega.com',
-  'oncity.com',
-  'geneciohogar.com.ar',
-];
+const STORES = ['Fravega', 'OnCity', 'Genecio Hogar', 'Naldo', 'Cetrogar'];
 
 function buildSearchQuery(query) {
-  const siteFilter = SITES.map((s) => `site:${s}`).join(' OR ');
-  return `(${siteFilter}) ${query} precio stock cuotas Argentina`;
+  const storeList = STORES.join(', ');
+  return `${query} precio stock cuotas ${storeList} Argentina 2025`;
 }
 
 async function searchCompetitors(query) {
@@ -17,19 +13,21 @@ async function searchCompetitors(query) {
     return 'Error: PERPLEXITY_API_KEY no configurada.';
   }
 
+  const storeList = STORES.join(', ');
   const systemPrompt = `Sos un asistente de investigación de mercado argentino especializado en electrodomésticos.
-Tu tarea es buscar el producto indicado en estos sitios: fravega.com, oncity.com, geneciohogar.com.ar.
-Devolvé los resultados en formato de tabla con columnas: Competidor | Precio | Stock | Promociones/Cuotas.
-- Incluí todos los sitios donde encontraste resultados, aunque sea uno solo.
-- Si en algún sitio no hay resultados, escribí "No encontrado" en esa fila.
-- Mostrá precios en pesos argentinos, stock disponible y opciones de financiación/cuotas si las hay.
-- No inventes datos. Si no tenés información de precio exacto, indicá "Consultar".
+Debés buscar el producto indicado en estos sitios de venta online: fravega.com, oncity.com, geneciohogar.com.ar, naldo.com.ar, cetrogar.com.ar.
+Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Promociones/Cuotas | URL del producto.
+- Incluí una fila por cada tienda donde encontraste el producto.
+- Si en una tienda no hay resultados, igualmente incluí la fila con "No encontrado" en Precio y Stock.
+- Para cada resultado encontrado, incluí la URL directa al producto o a la búsqueda en esa tienda.
+- Mostrá precios en pesos argentinos. Si hay cuotas sin interés, indicá la cantidad de cuotas.
+- No inventes precios ni URLs. Si no tenés el dato exacto, escribí "Consultar en ${storeList}".
 - Respondé siempre en español.`;
 
   const searchQuery = buildSearchQuery(query);
 
   console.log(`[perplexity] Query original: "${query}"`);
-  console.log(`[perplexity] Query con sites: "${searchQuery}"`);
+  console.log(`[perplexity] Query construido: "${searchQuery}"`);
   console.log(`[perplexity] Llamando a Perplexity API (modelo: sonar-pro)...`);
 
   let res;
