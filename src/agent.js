@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { searchCompetitors } = require('./tools/perplexity');
 const { generatePresentation } = require('./tools/gamma');
+const { analyzeExcel } = require('./tools/excel');
 
 const client = new Anthropic();
 
@@ -16,11 +17,12 @@ REGLA CRÍTICA SOBRE RESULTADOS DE HERRAMIENTAS:
 Cuando una herramienta devuelve datos, SIEMPRE mostrá esos datos al usuario de forma completa y literal.
 Nunca digas "no encontré información" ni "no pude obtener resultados" si la herramienta devolvió contenido.
 Los datos que devuelven las herramientas son la fuente de verdad — no los filtrés, no los resumás en vacío, no los descartés aunque parezcan incompletos.
-Si la tabla tiene filas con "No encontrado" para algunas tiendas, mostrá igual toda la tabla.
+Si la tabla tiene filas con "Sin datos" para algunas tiendas, mostrá igual toda la tabla.
 
 CAPACIDADES:
 1. **Presentaciones**: Podés generar presentaciones usando Gamma. Cuando el usuario pida una presentación, usá la herramienta "generate_presentation".
-2. **Búsqueda de competencia**: Podés buscar precios, stock y promociones de electrodomésticos en fravega.com, oncity.com.ar y geneciohogar.com.ar usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta.
+2. **Búsqueda de competencia**: Podés buscar precios, stock y promociones de electrodomésticos usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta.
+3. **Análisis de Excel**: Si el usuario adjuntó un archivo Excel, actuás como consultor de datos. Si el usuario no especificó qué analizar, preguntale qué aspecto le interesa (horas por persona, costos, rankings, etc.). Si especificó una pregunta, usá la herramienta "analyze_excel" directamente.
 
 Cuando necesites usar una herramienta, invocala. No simules resultados.`;
 
@@ -28,7 +30,7 @@ const TOOLS = [
   {
     name: 'search_competitors',
     description:
-      'Busca precios, stock y promociones de un electrodoméstico en fravega.com, oncity.com.ar y geneciohogar.com.ar. Devuelve una tabla comparativa. Usá esta herramienta siempre que el usuario mencione un electrodoméstico, aunque no especifique el modelo exacto.',
+      'Busca precios, stock y promociones de un electrodoméstico en tiendas argentinas. Devuelve una tabla comparativa. Usá esta herramienta siempre que el usuario mencione un electrodoméstico, aunque no especifique el modelo exacto.',
     input_schema: {
       type: 'object',
       properties: {
@@ -54,23 +56,52 @@ const TOOLS = [
         },
         details: {
           type: 'string',
-          description:
-            'Detalles adicionales o puntos a cubrir en la presentación.',
+          description: 'Detalles adicionales o puntos a cubrir en la presentación.',
         },
       },
       required: ['topic'],
     },
   },
+  {
+    name: 'analyze_excel',
+    description:
+      'Analiza los datos del archivo Excel adjunto por el usuario. Usá esta herramienta cuando el usuario haya subido un Excel y haya especificado qué quiere analizar (horas, costos, rankings, comparativas, etc.).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'Pregunta o análisis específico a realizar sobre los datos del Excel.',
+        },
+        analysisType: {
+          type: 'string',
+          enum: ['horas', 'costos', 'comparativa', 'resumen', 'otro'],
+          description: 'Tipo de análisis a realizar.',
+        },
+      },
+      required: ['question', 'analysisType'],
+    },
+  },
 ];
 
-async function handleChat(userMessage, history) {
+async function handleChat(userMessage, history, excelContext = null) {
   const messages = history.map((m) => ({
     role: m.role,
     content: m.content,
   }));
-  messages.push({ role: 'user', content: userMessage });
 
-  console.log(`[agent] Enviando a Claude. Turnos en contexto: ${messages.length}`);
+  // Si hay Excel, inyectarlo en el mensaje del usuario
+  let fullMessage;
+  if (excelContext) {
+    const userText = userMessage.trim() || '(El usuario subió el archivo sin agregar un mensaje)';
+    fullMessage = `El usuario adjuntó un archivo Excel con los siguientes datos:\n\n${excelContext}\n\n---\n\nMensaje del usuario: ${userText}`;
+  } else {
+    fullMessage = userMessage;
+  }
+
+  messages.push({ role: 'user', content: fullMessage });
+
+  console.log(`[agent] Enviando a Claude. Turnos en contexto: ${messages.length} | Excel adjunto: ${!!excelContext}`);
 
   let response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -100,11 +131,15 @@ async function handleChat(userMessage, history) {
           result = await searchCompetitors(block.input.query);
           console.log(`[agent] search_competitors completado. Resultado (primeros 300 chars): ${String(result).slice(0, 300)}`);
         } else if (block.name === 'generate_presentation') {
-          result = await generatePresentation(
-            block.input.topic,
-            block.input.details
-          );
+          result = await generatePresentation(block.input.topic, block.input.details);
           console.log(`[agent] generate_presentation completado.`);
+        } else if (block.name === 'analyze_excel') {
+          if (!excelContext) {
+            result = 'No hay ningún archivo Excel adjunto en esta conversación.';
+          } else {
+            result = await analyzeExcel(excelContext, block.input.question, block.input.analysisType);
+            console.log(`[agent] analyze_excel completado. Resultado (primeros 300 chars): ${String(result).slice(0, 300)}`);
+          }
         } else {
           result = `Herramienta desconocida: ${block.name}`;
           console.warn(`[agent] Tool desconocida: ${block.name}`);

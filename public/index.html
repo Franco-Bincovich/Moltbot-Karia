@@ -23,20 +23,25 @@
         <div class="message-content">
           Hola, soy <strong>Moltbot KarIA</strong>. Puedo ayudarte con:<br><br>
           <strong>1.</strong> Generar presentaciones en Gamma.<br>
-          <strong>2.</strong> Buscar precios y promociones de electrodomésticos en la competencia (Frávega, Oncity, Genecio).<br><br>
+          <strong>2.</strong> Buscar precios y promociones de electrodomésticos en la competencia.<br>
+          <strong>3.</strong> Analizar archivos Excel (horas, costos, proyectos, clientes).<br><br>
           ¿En qué puedo ayudarte?
         </div>
       </div>
     </div>
 
     <form class="chat-input" id="chatForm">
-      <input
-        type="text"
-        id="userInput"
-        placeholder="Escribí tu mensaje..."
-        autocomplete="off"
-        required
-      />
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" />
+      <button type="button" id="attachBtn" title="Adjuntar Excel">📎</button>
+      <div class="input-wrapper">
+        <input
+          type="text"
+          id="userInput"
+          placeholder="Escribí tu mensaje..."
+          autocomplete="off"
+        />
+        <span id="fileLabel" class="file-label" style="display:none"></span>
+      </div>
       <button type="submit" id="sendBtn">Enviar</button>
     </form>
   </div>
