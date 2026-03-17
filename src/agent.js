@@ -1,5 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
-const { searchCompetitors } = require('./tools/perplexity');
+const { searchCompetitors } = require('./tools/search');
 const { generatePresentation } = require('./tools/gamma');
 
 const client = new Anthropic();
