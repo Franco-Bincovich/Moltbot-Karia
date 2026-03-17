@@ -44,7 +44,7 @@ async function generatePresentation(topic, details) {
   }
 
   // Paso 2: Polling cada 5 segundos hasta completed o failed
-  const maxAttempts = 24; // 2 minutos máximo
+  const maxAttempts = 40; // ~3.5 minutos máximo
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, 5000));
 
@@ -60,11 +60,12 @@ async function generatePresentation(topic, details) {
     console.log(`[gamma] status: ${statusData.status}`);
 
     if (statusData.status === 'completed') {
+      console.log('[gamma] Respuesta completa al completarse:', JSON.stringify(statusData));
       const exportUrl = statusData.exportUrl;
-      const fallbackUrl = statusData.gammaUrl ?? statusData.url;
+      const gammaUrl = statusData.gammaUrl ?? statusData.url;
       if (exportUrl) return `Presentación lista. Descargá el PDF acá: ${exportUrl}`;
-      if (fallbackUrl) return `Presentación creada (PDF no disponible). Accedela acá: ${fallbackUrl}`;
-      console.warn('[gamma] completed pero sin URL. Data:', JSON.stringify(statusData));
+      if (gammaUrl) return `Presentación creada. Accedela acá: ${gammaUrl}`;
+      console.warn('[gamma] completed sin ninguna URL disponible.');
     }
 
     if (statusData.status === 'failed') {
