@@ -35,7 +35,7 @@ Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Pr
   const searchQuery = buildSearchQuery(query);
 
   console.log(`[perplexity] Query construido: "${searchQuery}"`);
-  console.log(`[perplexity] Llamando a Perplexity API (modelo: sonar-reasoning-pro)...`);
+  console.log(`[perplexity] Llamando a Perplexity API (modelo: sonar)...`);
 
   let res;
   try {
@@ -46,7 +46,7 @@ Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Pr
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'sonar-reasoning-pro',
+        model: 'sonar',
         search_recency_filter: 'month',
         messages: [
           { role: 'system', content: systemPrompt },

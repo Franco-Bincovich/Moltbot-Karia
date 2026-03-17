@@ -1,5 +1,4 @@
 const BASE_URL = 'https://www.fravega.com';
-const API_URL = `${BASE_URL}/api/v1/search`;
 
 const HEADERS = {
   'User-Agent':
@@ -9,64 +8,81 @@ const HEADERS = {
   Referer: 'https://www.fravega.com/',
 };
 
+// URLs candidatas en orden de prueba
+function buildCandidateUrls(query) {
+  const q = encodeURIComponent(query);
+  return [
+    `https://www.fravega.com/api/search?term=${q}&page=1&limit=5`,
+    `https://www.fravega.com/api/catalog/search?q=${q}`,
+    `https://api.fravega.com/v1/products?q=${q}`,
+  ];
+}
+
+function extractItems(data) {
+  return data.results ?? data.products ?? data.items ?? data.data ?? [];
+}
+
 /**
- * Busca productos en Frávega usando su API interna y devuelve los primeros 5 resultados.
- * @param {string} query - Término de búsqueda (ej: "televisor Samsung 50 pulgadas")
- * @returns {Promise<Array<{nombre: string, precio: string|null, precioAnterior: string|null, url: string|null}>>}
+ * Prueba cada URL candidata en orden hasta obtener 200 OK con datos válidos.
+ * Loguea qué URL funcionó.
  */
 async function scrapeFravega(query) {
-  const url = `${API_URL}?keyword=${encodeURIComponent(query)}&page=1&pageSize=5`;
-  console.log(`[fravega] Consultando API: ${url}`);
+  const candidates = buildCandidateUrls(query);
+  let lastError = null;
 
-  let res;
-  try {
-    res = await fetch(url, { headers: HEADERS });
-  } catch (err) {
-    console.error('[fravega] Error de red:', err.message);
-    throw new Error(`Frávega no responde: ${err.message}`);
+  for (const url of candidates) {
+    console.log(`[fravega] Probando: ${url}`);
+
+    let res;
+    try {
+      res = await fetch(url, { headers: HEADERS });
+    } catch (err) {
+      console.error(`[fravega] Error de red en ${url}: ${err.message}`);
+      lastError = err;
+      continue;
+    }
+
+    console.log(`[fravega] HTTP ${res.status} para ${url}`);
+
+    if (!res.ok) {
+      lastError = new Error(`HTTP ${res.status}`);
+      continue;
+    }
+
+    let data;
+    try {
+      data = await res.json();
+    } catch (err) {
+      console.error(`[fravega] Respuesta no-JSON en ${url}: ${err.message}`);
+      lastError = err;
+      continue;
+    }
+
+    const items = extractItems(data);
+    console.log(`[fravega] URL exitosa: ${url} | Productos: ${items.length} | Keys: ${Object.keys(data).join(', ')}`);
+
+    if (items.length === 0) {
+      console.warn('[fravega] Sin resultados. Respuesta:', JSON.stringify(data).slice(0, 500));
+    }
+
+    return items.slice(0, 5).map((item) => {
+      const nombre = item.title ?? item.name ?? null;
+      const precioRaw = item.sellingPrice ?? item.price ?? null;
+      const precioAnteriorRaw = item.originalPrice ?? null;
+      const slug = item.slug ?? item.url ?? null;
+
+      const precio = precioRaw != null ? formatPrice(precioRaw) : null;
+      const precioAnterior =
+        precioAnteriorRaw != null && precioAnteriorRaw !== precioRaw
+          ? formatPrice(precioAnteriorRaw)
+          : null;
+      const productUrl = slug ? `${BASE_URL}/p/${slug}` : null;
+
+      return { nombre, precio, precioAnterior, url: productUrl };
+    });
   }
 
-  console.log(`[fravega] HTTP ${res.status} ${res.statusText}`);
-
-  if (res.status === 403 || res.status === 429) {
-    throw new Error(`Frávega bloqueó la request (HTTP ${res.status})`);
-  }
-
-  if (!res.ok) {
-    throw new Error(`Frávega devolvió HTTP ${res.status}`);
-  }
-
-  let data;
-  try {
-    data = await res.json();
-  } catch (err) {
-    throw new Error(`Frávega devolvió respuesta no-JSON: ${err.message}`);
-  }
-
-  console.log(`[fravega] Respuesta JSON recibida. Keys: ${Object.keys(data).join(', ')}`);
-
-  const items = data.results ?? data.products ?? data.items ?? [];
-  console.log(`[fravega] Productos en respuesta: ${items.length}`);
-
-  if (items.length === 0) {
-    console.warn('[fravega] Sin resultados. Respuesta completa:', JSON.stringify(data).slice(0, 500));
-  }
-
-  return items.slice(0, 5).map((item) => {
-    const nombre = item.title ?? item.name ?? null;
-    const precioRaw = item.sellingPrice ?? item.price ?? null;
-    const precioAnteriorRaw = item.originalPrice ?? null;
-    const slug = item.slug ?? item.url ?? null;
-
-    const precio = precioRaw != null ? formatPrice(precioRaw) : null;
-    const precioAnterior =
-      precioAnteriorRaw != null && precioAnteriorRaw !== precioRaw
-        ? formatPrice(precioAnteriorRaw)
-        : null;
-    const url = slug ? `${BASE_URL}/p/${slug}` : null;
-
-    return { nombre, precio, precioAnterior, url };
-  });
+  throw new Error(`Todas las URLs fallaron. Último error: ${lastError?.message}`);
 }
 
 function formatPrice(value) {
@@ -74,9 +90,6 @@ function formatPrice(value) {
   return `$${Number(value).toLocaleString('es-AR')}`;
 }
 
-/**
- * Formatea los resultados como texto para incluir en la respuesta del agente.
- */
 function formatFravegaResults(results, query) {
   if (results.length === 0) {
     return `**Frávega**: No se encontraron resultados para "${query}". Podés buscar directamente en ${BASE_URL}/l/?keyword=${encodeURIComponent(query)}`;
