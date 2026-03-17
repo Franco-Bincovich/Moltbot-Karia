@@ -1,7 +1,9 @@
+const { scrapeFravega, formatFravegaResults } = require('./scrapers/fravega');
+
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 
-const STORE_DOMAINS = [
-  'fravega.com',
+// Tiendas que usan Perplexity (Frávega tiene scraper propio)
+const PERPLEXITY_DOMAINS = [
   'oncity.com.ar',
   'geneciohogar.com.ar',
   'naldo.com.ar',
@@ -9,19 +11,19 @@ const STORE_DOMAINS = [
 ];
 
 function buildSearchQuery(query) {
-  const domainList = STORE_DOMAINS.join(', ');
+  const domainList = PERPLEXITY_DOMAINS.join(', ');
   return `¿Cuál es el precio actual de ${query} en ${domainList}? Incluí stock disponible y opciones de cuotas sin interés.`;
 }
 
-async function searchCompetitors(query) {
+async function searchPerplexity(query) {
   if (!PERPLEXITY_API_KEY) {
     console.error('[perplexity] PERPLEXITY_API_KEY no configurada');
     return 'Error: PERPLEXITY_API_KEY no configurada.';
   }
 
-  const storeList = STORE_DOMAINS.join(', ');
+  const storeList = PERPLEXITY_DOMAINS.join(', ');
   const systemPrompt = `Sos un asistente de investigación de mercado argentino especializado en electrodomésticos.
-Debés buscar el producto indicado en estos sitios de venta online: fravega.com, oncity.com, geneciohogar.com.ar, naldo.com.ar, cetrogar.com.ar.
+Debés buscar el producto indicado en estos sitios de venta online: oncity.com.ar, geneciohogar.com.ar, naldo.com.ar, cetrogar.com.ar.
 Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Promociones/Cuotas | URL del producto.
 - Incluí una fila por cada tienda donde encontraste el producto.
 - Si en una tienda no hay resultados, igualmente incluí la fila con "No encontrado" en Precio y Stock.
@@ -32,7 +34,6 @@ Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Pr
 
   const searchQuery = buildSearchQuery(query);
 
-  console.log(`[perplexity] Query original: "${query}"`);
   console.log(`[perplexity] Query construido: "${searchQuery}"`);
   console.log(`[perplexity] Llamando a Perplexity API (modelo: sonar-reasoning-pro)...`);
 
@@ -54,7 +55,7 @@ Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Pr
       }),
     });
   } catch (fetchErr) {
-    console.error('[perplexity] Error de red al llamar a Perplexity:', fetchErr.message);
+    console.error('[perplexity] Error de red:', fetchErr.message);
     throw fetchErr;
   }
 
@@ -70,12 +71,39 @@ Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Pr
   const content = data.choices?.[0]?.message?.content;
 
   if (!content) {
-    console.warn('[perplexity] Respuesta vacía de Perplexity. Data completa:', JSON.stringify(data));
-    return 'No se obtuvieron resultados.';
+    console.warn('[perplexity] Respuesta vacía. Data completa:', JSON.stringify(data));
+    return 'No se obtuvieron resultados de OnCity, Genecio Hogar, Naldo y Cetrogar.';
   }
 
   console.log(`[perplexity] Respuesta recibida (primeros 300 chars): ${content.slice(0, 300)}`);
   return content;
+}
+
+async function searchCompetitors(query) {
+  console.log(`[search] Iniciando búsqueda para: "${query}"`);
+
+  const [fravegaResults, perplexityContent] = await Promise.allSettled([
+    scrapeFravega(query),
+    searchPerplexity(query),
+  ]);
+
+  const parts = [];
+
+  if (fravegaResults.status === 'fulfilled') {
+    parts.push(formatFravegaResults(fravegaResults.value, query));
+  } else {
+    console.error('[search] Error en scraper Frávega:', fravegaResults.reason?.message);
+    parts.push(`**Frávega**: Error al obtener resultados (${fravegaResults.reason?.message})`);
+  }
+
+  if (perplexityContent.status === 'fulfilled') {
+    parts.push(perplexityContent.value);
+  } else {
+    console.error('[search] Error en Perplexity:', perplexityContent.reason?.message);
+    parts.push(`**Otras tiendas**: Error al obtener resultados (${perplexityContent.reason?.message})`);
+  }
+
+  return parts.join('\n\n---\n\n');
 }
 
 module.exports = { searchCompetitors };
