@@ -65,6 +65,8 @@ async function handleChat(userMessage, history) {
   }));
   messages.push({ role: 'user', content: userMessage });
 
+  console.log(`[agent] Enviando a Claude. Turnos en contexto: ${messages.length}`);
+
   let response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
@@ -72,6 +74,8 @@ async function handleChat(userMessage, history) {
     tools: TOOLS,
     messages,
   });
+
+  console.log(`[agent] Claude respondió. stop_reason: ${response.stop_reason}`);
 
   // Tool-use loop
   while (response.stop_reason === 'tool_use') {
@@ -83,19 +87,26 @@ async function handleChat(userMessage, history) {
     for (const block of assistantContent) {
       if (block.type !== 'tool_use') continue;
 
+      console.log(`[agent] Tool invocada: ${block.name} | Input: ${JSON.stringify(block.input)}`);
+
       let result;
       try {
         if (block.name === 'search_competitors') {
           result = await searchCompetitors(block.input.query);
+          console.log(`[agent] search_competitors completado. Resultado (primeros 300 chars): ${String(result).slice(0, 300)}`);
         } else if (block.name === 'generate_presentation') {
           result = await generatePresentation(
             block.input.topic,
             block.input.details
           );
+          console.log(`[agent] generate_presentation completado.`);
         } else {
           result = `Herramienta desconocida: ${block.name}`;
+          console.warn(`[agent] Tool desconocida: ${block.name}`);
         }
       } catch (err) {
+        console.error(`[agent] Error ejecutando ${block.name}:`, err.message);
+        console.error(err.stack);
         result = `Error al ejecutar ${block.name}: ${err.message}`;
       }
 
@@ -108,6 +119,7 @@ async function handleChat(userMessage, history) {
 
     messages.push({ role: 'user', content: toolResults });
 
+    console.log(`[agent] Enviando resultados de tools a Claude...`);
     response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
@@ -115,6 +127,7 @@ async function handleChat(userMessage, history) {
       tools: TOOLS,
       messages,
     });
+    console.log(`[agent] Claude respondió. stop_reason: ${response.stop_reason}`);
   }
 
   // Extraer texto de la respuesta final

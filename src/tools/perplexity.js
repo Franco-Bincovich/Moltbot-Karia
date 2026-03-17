@@ -13,6 +13,7 @@ function buildSearchQuery(query) {
 
 async function searchCompetitors(query) {
   if (!PERPLEXITY_API_KEY) {
+    console.error('[perplexity] PERPLEXITY_API_KEY no configurada');
     return 'Error: PERPLEXITY_API_KEY no configurada.';
   }
 
@@ -27,28 +28,49 @@ Devolvé los resultados en formato de tabla con columnas: Competidor | Precio | 
 
   const searchQuery = buildSearchQuery(query);
 
-  const res = await fetch('https://api.perplexity.ai/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'sonar-pro',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: searchQuery },
-      ],
-    }),
-  });
+  console.log(`[perplexity] Query original: "${query}"`);
+  console.log(`[perplexity] Query con sites: "${searchQuery}"`);
+  console.log(`[perplexity] Llamando a Perplexity API (modelo: sonar-pro)...`);
+
+  let res;
+  try {
+    res = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'sonar-pro',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: searchQuery },
+        ],
+      }),
+    });
+  } catch (fetchErr) {
+    console.error('[perplexity] Error de red al llamar a Perplexity:', fetchErr.message);
+    throw fetchErr;
+  }
+
+  console.log(`[perplexity] Respuesta HTTP: ${res.status} ${res.statusText}`);
 
   if (!res.ok) {
     const text = await res.text();
+    console.error(`[perplexity] Error de API: ${res.status} | Body: ${text}`);
     throw new Error(`Perplexity API error ${res.status}: ${text}`);
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || 'No se obtuvieron resultados.';
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    console.warn('[perplexity] Respuesta vacía de Perplexity. Data completa:', JSON.stringify(data));
+    return 'No se obtuvieron resultados.';
+  }
+
+  console.log(`[perplexity] Respuesta recibida (primeros 300 chars): ${content.slice(0, 300)}`);
+  return content;
 }
 
 module.exports = { searchCompetitors };
