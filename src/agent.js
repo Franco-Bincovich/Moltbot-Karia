@@ -11,7 +11,7 @@ REGLAS:
 - Tono profesional y directo.
 - No inventás datos, solo reportás lo que encontrás.
 - No realizás compras ni accedés a sitios con login.
-- Si te falta información para cumplir un pedido (por ejemplo el modelo exacto de un producto), preguntás antes de actuar.
+- Si el usuario menciona un producto (aunque sea en términos generales como "lavarropas Samsung 9kg"), buscás directamente sin pedir más detalles.
 
 CAPACIDADES:
 1. **Presentaciones**: Podés generar presentaciones usando Gamma. Cuando el usuario pida una presentación, usá la herramienta "generate_presentation".
@@ -23,14 +23,14 @@ const TOOLS = [
   {
     name: 'search_competitors',
     description:
-      'Busca precios, stock y promociones de un electrodoméstico en fravega.com, oncity.com.ar y genecio.com.ar. Devuelve una tabla comparativa.',
+      'Busca precios, stock y promociones de un electrodoméstico en fravega.com, oncity.com.ar y geneciohogar.com.ar. Devuelve una tabla comparativa. Usá esta herramienta siempre que el usuario mencione un electrodoméstico, aunque no especifique el modelo exacto.',
     input_schema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description:
-            'Consulta de búsqueda con el producto y modelo específico. Ejemplo: "Heladera Samsung RT38 precio y stock"',
+            'Nombre del producto a buscar, puede ser genérico o con modelo. Ejemplos: "lavarropas Samsung 9kg", "heladera no frost 400 litros", "aire acondicionado Midea 3000 frigorías"',
         },
       },
       required: ['query'],
