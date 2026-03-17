@@ -6,7 +6,7 @@ async function searchCompetitors(query) {
   }
 
   const systemPrompt = `Sos un asistente de investigación de mercado argentino.
-Buscá información SOLO en estos sitios: fravega.com, oncity.com.ar y genecio.com.ar.
+Buscá información SOLO en estos sitios: fravega.com, oncity.com, geneciohogar.com.ar, naldo.com.ar y cetrogar.com.ar.
 Devolvé los resultados en formato de tabla comparativa con columnas: Competidor | Precio | Stock | Promociones/Cuotas.
 Si no encontrás información de algún competidor, indicalo claramente con "No encontrado".
 Respondé siempre en español. No inventes datos.`;
