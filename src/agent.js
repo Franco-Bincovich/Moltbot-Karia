@@ -79,7 +79,7 @@ const TOOLS = [
   {
     name: 'analyze_excel',
     description:
-      'Analiza los datos del archivo Excel adjunto por el usuario. Usá esta herramienta cuando el usuario haya subido un Excel y haya especificado qué quiere analizar (horas, costos, rankings, comparativas, etc.).',
+      'Analiza los datos del archivo Excel adjunto por el usuario. Usá esta herramienta cuando el usuario haya subido un Excel y haya especificado qué quiere analizar (horas, costos, rankings, comparativas, etc.). Si el usuario pregunta por una persona específica, incluí su nombre en personFilter para optimizar el análisis.',
     input_schema: {
       type: 'object',
       properties: {
@@ -91,6 +91,10 @@ const TOOLS = [
           type: 'string',
           enum: ['horas', 'costos', 'comparativa', 'resumen', 'otro'],
           description: 'Tipo de análisis a realizar.',
+        },
+        personFilter: {
+          type: 'string',
+          description: 'Nombre de la persona a filtrar. Si el usuario pregunta por alguien específico (ej: "las horas de Constanza", "el costo de Juan"), incluí el nombre acá para filtrar solo sus datos. Dejá vacío para análisis general.',
         },
       },
       required: ['question', 'analysisType'],
@@ -210,7 +214,7 @@ async function handleChat(userMessage, history, excelContext = null) {
           if (!excelContext) {
             result = 'No hay ningún archivo Excel adjunto en esta conversación.';
           } else {
-            result = await analyzeExcel(excelContext, block.input.question, block.input.analysisType);
+            result = await analyzeExcel(excelContext, block.input.question, block.input.analysisType, block.input.personFilter || null);
             console.log(`[agent] analyze_excel completado. Resultado (primeros 300 chars): ${String(result).slice(0, 300)}`);
           }
         } else if (block.name === 'export_to_word') {
