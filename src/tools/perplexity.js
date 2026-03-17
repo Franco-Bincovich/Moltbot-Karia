@@ -1,7 +1,16 @@
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 
+const PRIORITY_SITES = [
+  'fravega.com',
+  'oncity.com',
+  'naldo.com.ar',
+  'megatone.net',
+  'musimundo.com',
+];
+
 const SYSTEM_PROMPT = `Sos un asistente de investigación de precios para el mercado argentino.
-Cuando te consulten por un producto, buscá precios actuales en tiendas argentinas que tengas indexadas.
+Cuando te consulten por un producto, buscá precios actuales priorizando estos sitios en este orden: ${PRIORITY_SITES.join(', ')}.
+Si no encontrás resultados en alguno de esos sitios, completá con precios reales de cualquier otra tienda argentina que tengas indexada.
 Devolvé al menos 3 resultados reales con precio, organizados en una tabla con columnas: Tienda | Precio | Cuotas | Link.
 - Mostrá precios en pesos argentinos.
 - Si hay cuotas sin interés, indicá la cantidad (ej: "12 cuotas sin interés").
@@ -15,7 +24,8 @@ async function searchCompetitors(query) {
     return 'Error: PERPLEXITY_API_KEY no configurada.';
   }
 
-  const searchQuery = `${query} precio Argentina 2025 cuotas`;
+  const siteFilter = PRIORITY_SITES.map((s) => `site:${s}`).join(' OR ');
+  const searchQuery = `${query} precio Argentina 2025 ${siteFilter}`;
   console.log(`[perplexity] Query: "${searchQuery}"`);
   console.log(`[perplexity] Llamando a API (modelo: sonar-pro)...`);
 
