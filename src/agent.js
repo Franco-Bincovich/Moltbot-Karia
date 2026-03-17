@@ -85,10 +85,21 @@ const TOOLS = [
 ];
 
 async function handleChat(userMessage, history, excelContext = null) {
-  const messages = history.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  // Si no hay excelContext directo, buscarlo en el historial
+  if (!excelContext) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i];
+      if (m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[EXCEL_DATA]\n')) {
+        excelContext = m.content.slice('[EXCEL_DATA]\n'.length);
+        break;
+      }
+    }
+  }
+
+  // Filtrar los mensajes [EXCEL_DATA] del historial para no enviarlos a Claude
+  const messages = history
+    .filter((m) => !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[EXCEL_DATA]\n')))
+    .map((m) => ({ role: m.role, content: m.content }));
 
   // Si hay Excel, inyectarlo en el mensaje del usuario
   let fullMessage;

@@ -68,7 +68,9 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     console.log(`[${ts}] Llamando a handleChat...`);
     const reply = await handleChat(message, history, excelContext);
     console.log(`[${new Date().toISOString()}] handleChat completado. Respuesta (primeros 200 chars): ${String(reply).slice(0, 200)}`);
-    res.json({ reply });
+    const result = { reply };
+    if (excelContext) result.excelContext = excelContext;
+    res.json(result);
   } catch (err) {
     console.error(`[${new Date().toISOString()}] Error en /api/chat:`, err.message);
     console.error(err.stack);

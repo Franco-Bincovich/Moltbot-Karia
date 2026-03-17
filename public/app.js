@@ -66,6 +66,9 @@ chatForm.addEventListener('submit', async (e) => {
       appendMessage('bot', `Error: ${data.error}`);
     } else {
       history.push({ role: 'user', content: text || displayText });
+      if (data.excelContext) {
+        history.push({ role: 'assistant', content: `[EXCEL_DATA]\n${data.excelContext}` });
+      }
       history.push({ role: 'assistant', content: data.reply });
       appendMessage('bot', formatMarkdown(data.reply));
     }
