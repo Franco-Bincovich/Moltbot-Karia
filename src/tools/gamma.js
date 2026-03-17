@@ -6,10 +6,10 @@ async function generatePresentation(topic, details) {
   }
 
   // Paso 1: Crear la generación
-  const createRes = await fetch('https://api.gamma.app/v1/generate', {
+  const createRes = await fetch('https://api.gamma.app/generations', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${GAMMA_API_KEY}`,
+      'X-API-KEY': GAMMA_API_KEY,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -38,9 +38,9 @@ async function generatePresentation(topic, details) {
     await new Promise((r) => setTimeout(r, 3000));
 
     const statusRes = await fetch(
-      `https://api.gamma.app/v1/generate/${generationId}`,
+      `https://api.gamma.app/generations/${generationId}`,
       {
-        headers: { Authorization: `Bearer ${GAMMA_API_KEY}` },
+        headers: { 'X-API-KEY': GAMMA_API_KEY },
       }
     );
 
