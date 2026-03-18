@@ -2,8 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const crypto = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
 const { handleChat } = require('./agent');
 const { parseExcelBuffer } = require('./tools/excel');
+
+// Supabase client
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+  : null;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,6 +39,41 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Login endpoint
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email y contraseña son requeridos.' });
+  }
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase no configurado. Verificar SUPABASE_URL y SUPABASE_ANON_KEY en .env.' });
+  }
+
+  try {
+    const passwordHash = crypto.createHash('md5').update(password).digest('hex');
+
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('id, nombre, email')
+      .eq('email', email.toLowerCase().trim())
+      .eq('password', passwordHash)
+      .single();
+
+    if (error || !data) {
+      console.log(`[auth] Login fallido para: ${email}`);
+      return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
+    }
+
+    console.log(`[auth] Login exitoso: ${data.nombre} (${data.email})`);
+    res.json({ usuario_id: data.id, nombre: data.nombre, email: data.email });
+  } catch (err) {
+    console.error('[auth] Error en login:', err.message);
+    res.status(500).json({ error: 'Error interno al verificar credenciales.' });
+  }
+});
 
 // Endpoint de descarga de archivos exportados
 app.get('/download/:filename', (req, res) => {

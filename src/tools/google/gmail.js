@@ -10,6 +10,28 @@ function getGmail() {
 }
 
 /**
+ * Extrae adjuntos del payload de un email (recorre parts recursivamente).
+ */
+function getAttachments(payload) {
+  const attachments = [];
+  function walkParts(parts) {
+    if (!parts) return;
+    for (const part of parts) {
+      if (part.filename && part.filename.length > 0) {
+        attachments.push({ filename: part.filename, mimeType: part.mimeType || 'unknown' });
+      }
+      if (part.parts) walkParts(part.parts);
+    }
+  }
+  // Check top-level payload and its parts
+  if (payload.filename && payload.filename.length > 0) {
+    attachments.push({ filename: payload.filename, mimeType: payload.mimeType || 'unknown' });
+  }
+  walkParts(payload.parts);
+  return attachments;
+}
+
+/**
  * Obtiene los últimos N emails no leídos.
  * @param {number} limit - Cantidad máxima de emails (default 10)
  * @returns {string} Emails formateados
@@ -38,8 +60,7 @@ async function getUnreadEmails(limit = 10) {
     const detail = await gmail.users.messages.get({
       userId: 'me',
       id: msg.id,
-      format: 'metadata',
-      metadataHeaders: ['From', 'Subject', 'Date'],
+      format: 'full',
     });
 
     const headers = detail.data.payload.headers;
@@ -47,8 +68,14 @@ async function getUnreadEmails(limit = 10) {
     const subject = headers.find((h) => h.name === 'Subject')?.value || '(Sin asunto)';
     const date = headers.find((h) => h.name === 'Date')?.value || '';
     const snippet = detail.data.snippet || '';
+    const attachments = getAttachments(detail.data.payload);
 
-    emails.push(`- **De:** ${from}\n  **Asunto:** ${subject}\n  **Preview:** ${snippet}\n  **Fecha:** ${date}`);
+    let entry = `- **De:** ${from}\n  **Asunto:** ${subject}\n  **Preview:** ${snippet}\n  **Fecha:** ${date}`;
+    if (attachments.length > 0) {
+      const attachList = attachments.map((a) => `${a.filename} (${a.mimeType})`).join(', ');
+      entry += `\n  **Adjuntos (${attachments.length}):** ${attachList}`;
+    }
+    emails.push(entry);
   }
 
   console.log(`[gmail] ${emails.length} emails no leídos encontrados.`);
@@ -126,8 +153,7 @@ async function searchEmails(query) {
     const detail = await gmail.users.messages.get({
       userId: 'me',
       id: msg.id,
-      format: 'metadata',
-      metadataHeaders: ['From', 'Subject', 'Date'],
+      format: 'full',
     });
 
     const headers = detail.data.payload.headers;
@@ -135,8 +161,14 @@ async function searchEmails(query) {
     const subject = headers.find((h) => h.name === 'Subject')?.value || '(Sin asunto)';
     const date = headers.find((h) => h.name === 'Date')?.value || '';
     const snippet = detail.data.snippet || '';
+    const attachments = getAttachments(detail.data.payload);
 
-    emails.push(`- **De:** ${from}\n  **Asunto:** ${subject}\n  **Preview:** ${snippet}\n  **Fecha:** ${date}`);
+    let entry = `- **De:** ${from}\n  **Asunto:** ${subject}\n  **Preview:** ${snippet}\n  **Fecha:** ${date}`;
+    if (attachments.length > 0) {
+      const attachList = attachments.map((a) => `${a.filename} (${a.mimeType})`).join(', ');
+      entry += `\n  **Adjuntos (${attachments.length}):** ${attachList}`;
+    }
+    emails.push(entry);
   }
 
   console.log(`[gmail] ${emails.length} emails encontrados.`);

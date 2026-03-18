@@ -1,13 +1,76 @@
-const messagesEl = document.getElementById('messages');
-const chatForm = document.getElementById('chatForm');
-const userInput = document.getElementById('userInput');
-const sendBtn = document.getElementById('sendBtn');
-const attachBtn = document.getElementById('attachBtn');
-const fileInput = document.getElementById('fileInput');
-const fileLabel = document.getElementById('fileLabel');
-const fileLabelName = fileLabel.querySelector('.file-label-name');
-const fileRemoveBtn = document.getElementById('fileRemoveBtn');
+// === Auth Gate ===
+const loginScreen = document.getElementById('loginScreen');
+const chatContainer = document.getElementById('chatContainer');
+const loginForm = document.getElementById('loginForm');
+const loginEmail = document.getElementById('loginEmail');
+const loginPassword = document.getElementById('loginPassword');
+const loginError = document.getElementById('loginError');
+const loginBtn = document.getElementById('loginBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+const headerUserName = document.getElementById('headerUserName');
 
+// Check existing session
+const session = JSON.parse(sessionStorage.getItem('karia_session') || 'null');
+if (session) {
+  showChat(session);
+}
+
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  loginError.textContent = '';
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Ingresando...';
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: loginEmail.value.trim(),
+        password: loginPassword.value,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      loginError.textContent = data.error || 'Error al iniciar sesion.';
+      return;
+    }
+
+    // Save session
+    sessionStorage.setItem('karia_session', JSON.stringify(data));
+    showChat(data);
+  } catch (err) {
+    loginError.textContent = 'Error de conexion con el servidor.';
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = 'Iniciar sesion';
+  }
+});
+
+logoutBtn.addEventListener('click', () => {
+  sessionStorage.removeItem('karia_session');
+  loginScreen.style.display = 'flex';
+  chatContainer.style.display = 'none';
+  loginEmail.value = '';
+  loginPassword.value = '';
+  loginError.textContent = '';
+  // Clear chat state
+  messagesEl.innerHTML = '';
+  history.length = 0;
+});
+
+function showChat(userData) {
+  loginScreen.style.display = 'none';
+  chatContainer.style.display = 'flex';
+  headerUserName.textContent = userData.nombre;
+  initChat();
+}
+
+// === Chat App (only runs after login) ===
+let chatInitialized = false;
+let messagesEl, chatForm, userInput, sendBtn, attachBtn, fileInput, fileLabel, fileLabelName, fileRemoveBtn;
 const history = [];
 let pendingFile = null;
 
@@ -21,8 +84,21 @@ const KARIA_AVATAR_SVG = `<svg viewBox="0 0 28 28" width="28" height="28">
   <text x="17.5" y="22" font-family="Baloo 2, sans-serif" font-size="9.5" font-weight="600" fill="#43D1C9">ia</text>
 </svg>`;
 
-// === Welcome message on load ===
-(function showWelcome() {
+function initChat() {
+  if (chatInitialized) return;
+  chatInitialized = true;
+
+  messagesEl = document.getElementById('messages');
+  chatForm = document.getElementById('chatForm');
+  userInput = document.getElementById('userInput');
+  sendBtn = document.getElementById('sendBtn');
+  attachBtn = document.getElementById('attachBtn');
+  fileInput = document.getElementById('fileInput');
+  fileLabel = document.getElementById('fileLabel');
+  fileLabelName = fileLabel.querySelector('.file-label-name');
+  fileRemoveBtn = document.getElementById('fileRemoveBtn');
+
+  // Welcome message
   const div = document.createElement('div');
   div.className = 'message bot welcome-message';
   div.innerHTML = `
@@ -32,118 +108,114 @@ const KARIA_AVATAR_SVG = `<svg viewBox="0 0 28 28" width="28" height="28">
       <div class="message-meta"><span class="msg-time">${getTimeStr()}</span></div>
     </div>`;
   messagesEl.appendChild(div);
-})();
 
-// === Attach file ===
-attachBtn.addEventListener('click', () => fileInput.click());
+  // Attach file
+  attachBtn.addEventListener('click', () => fileInput.click());
 
-fileInput.addEventListener('change', () => {
-  const file = fileInput.files[0];
-  if (!file) return;
-  pendingFile = file;
-  fileLabelName.textContent = file.name;
-  fileLabel.style.display = 'flex';
-  userInput.placeholder = 'Agrega una pregunta o envia sin texto...';
-});
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    pendingFile = file;
+    fileLabelName.textContent = file.name;
+    fileLabel.style.display = 'flex';
+    userInput.placeholder = 'Agrega una pregunta o envia sin texto...';
+  });
 
-fileRemoveBtn.addEventListener('click', () => {
-  pendingFile = null;
-  fileInput.value = '';
-  fileLabel.style.display = 'none';
-  userInput.placeholder = 'Escribi tu mensaje...';
-});
-
-// === Textarea auto-resize & Enter/Shift+Enter handling ===
-userInput.addEventListener('input', () => {
-  userInput.style.height = 'auto';
-  userInput.style.height = userInput.scrollHeight + 'px';
-  // Show scrollbar only when hitting max height
-  const maxH = parseFloat(getComputedStyle(userInput).maxHeight);
-  userInput.style.overflowY = userInput.scrollHeight > maxH ? 'auto' : 'hidden';
-});
-
-userInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    chatForm.requestSubmit();
-  }
-});
-
-// === Send message ===
-chatForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  const text = userInput.value.trim();
-  if (!text && !pendingFile) return;
-
-  // Show user message
-  if (text) {
-    appendMessage('user', escapeHtml(text));
-  }
-
-  // Show file attachment bubble if present
-  if (pendingFile) {
-    appendFileBubble('user', pendingFile.name, formatFileSize(pendingFile.size));
-  }
-
-  userInput.value = '';
-  userInput.style.height = 'auto';
-  sendBtn.disabled = true;
-  attachBtn.disabled = true;
-
-  const typing = showTyping();
-
-  try {
-    let res;
-
-    if (pendingFile) {
-      const formData = new FormData();
-      formData.append('file', pendingFile);
-      formData.append('message', text);
-      formData.append('history', JSON.stringify(history));
-
-      res = await fetch('/api/chat', {
-        method: 'POST',
-        body: formData,
-      });
-    } else {
-      res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history }),
-      });
-    }
-
-    const data = await res.json();
-
-    if (data.error) {
-      appendMessage('bot', `Error: ${escapeHtml(data.error)}`);
-    } else {
-      const displayText = text || (pendingFile ? `[Excel adjunto: ${pendingFile.name}]` : '');
-      history.push({ role: 'user', content: displayText });
-      if (data.excelContext) {
-        history.push({ role: 'assistant', content: `[EXCEL_DATA]\n${data.excelContext}` });
-      }
-      history.push({ role: 'assistant', content: data.reply });
-
-      // Process reply — detect download links and render as file bubbles
-      const replyHtml = formatMarkdown(data.reply);
-      appendMessage('bot', replyHtml);
-    }
-  } catch (err) {
-    appendMessage('bot', 'Error de conexion con el servidor.');
-  } finally {
+  fileRemoveBtn.addEventListener('click', () => {
     pendingFile = null;
     fileInput.value = '';
     fileLabel.style.display = 'none';
     userInput.placeholder = 'Escribi tu mensaje...';
+  });
 
-    typing.remove();
-    sendBtn.disabled = false;
-    attachBtn.disabled = false;
-    userInput.focus();
-  }
-});
+  // Textarea auto-resize & Enter/Shift+Enter handling
+  userInput.addEventListener('input', () => {
+    userInput.style.height = 'auto';
+    userInput.style.height = userInput.scrollHeight + 'px';
+    const maxH = parseFloat(getComputedStyle(userInput).maxHeight);
+    userInput.style.overflowY = userInput.scrollHeight > maxH ? 'auto' : 'hidden';
+  });
+
+  userInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      chatForm.requestSubmit();
+    }
+  });
+
+  // Send message
+  chatForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const text = userInput.value.trim();
+    if (!text && !pendingFile) return;
+
+    if (text) {
+      appendMessage('user', escapeHtml(text));
+    }
+
+    if (pendingFile) {
+      appendFileBubble('user', pendingFile.name, formatFileSize(pendingFile.size));
+    }
+
+    userInput.value = '';
+    userInput.style.height = 'auto';
+    sendBtn.disabled = true;
+    attachBtn.disabled = true;
+
+    const typing = showTyping();
+
+    try {
+      let res;
+
+      if (pendingFile) {
+        const formData = new FormData();
+        formData.append('file', pendingFile);
+        formData.append('message', text);
+        formData.append('history', JSON.stringify(history));
+
+        res = await fetch('/api/chat', {
+          method: 'POST',
+          body: formData,
+        });
+      } else {
+        res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, history }),
+        });
+      }
+
+      const data = await res.json();
+
+      if (data.error) {
+        appendMessage('bot', `Error: ${escapeHtml(data.error)}`);
+      } else {
+        const displayText = text || (pendingFile ? `[Excel adjunto: ${pendingFile.name}]` : '');
+        history.push({ role: 'user', content: displayText });
+        if (data.excelContext) {
+          history.push({ role: 'assistant', content: `[EXCEL_DATA]\n${data.excelContext}` });
+        }
+        history.push({ role: 'assistant', content: data.reply });
+
+        const replyHtml = formatMarkdown(data.reply);
+        appendMessage('bot', replyHtml);
+      }
+    } catch (err) {
+      appendMessage('bot', 'Error de conexion con el servidor.');
+    } finally {
+      pendingFile = null;
+      fileInput.value = '';
+      fileLabel.style.display = 'none';
+      userInput.placeholder = 'Escribi tu mensaje...';
+
+      typing.remove();
+      sendBtn.disabled = false;
+      attachBtn.disabled = false;
+      userInput.focus();
+    }
+  });
+}
 
 // === Append text message ===
 function appendMessage(role, contentHtml) {
@@ -243,15 +315,9 @@ function showTyping() {
 
 // === Markdown formatting ===
 function formatMarkdown(text) {
-  // Step 1: Extract download links BEFORE escaping.
-  // Capture the ENTIRE surrounding line/context to avoid stray text leaking.
   const downloadLinks = [];
   const DOWNLOAD_PLACEHOLDER = '___DOWNLOAD_PLACEHOLDER___';
 
-  // Pattern 1: Full line with optional leading text + markdown link to /download/
-  // e.g. "📄 Descargar: [Análisis Completo](/download/file.docx)"
-  // e.g. "Acá está tu archivo: [Descargar informe](/download/file.docx)"
-  // Captures everything on the line that contains the download link
   let cleaned = text.replace(
     /[^\n]*\[([^\]]*)\]\((\/download\/[^\s)]+)\)[^\n]*/g,
     (match, linkText, url) => {
@@ -260,8 +326,6 @@ function formatMarkdown(text) {
     }
   );
 
-  // Pattern 2: Bare /download/ URL (no markdown link), consume the whole line
-  // e.g. "Link de descarga: /download/file.docx"
   cleaned = cleaned.replace(
     /[^\n]*?(\/download\/[^\s<)]+)[^\n]*/g,
     (match, url) => {
@@ -272,28 +336,22 @@ function formatMarkdown(text) {
 
   let html = escapeHtml(cleaned);
 
-  // Bold **text**
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-  // Links [text](url) — non-download links only
   html = html.replace(
     /\[([^\]]+)\]\(([^\s)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener">$1</a>'
   );
 
-  // Bare URLs (not already inside href="...")
   html = html.replace(
     /(?<!")(https?:\/\/[^\s<]+)/g,
     '<a href="$1" target="_blank" rel="noopener">$1</a>'
   );
 
-  // Tables
   html = convertTables(html);
 
-  // Line breaks
   html = html.replace(/\n/g, '<br>');
 
-  // Replace download placeholders with a simple clickable link (same style as Gamma)
   let dlIndex = 0;
   html = html.replace(new RegExp(DOWNLOAD_PLACEHOLDER, 'g'), () => {
     const dl = downloadLinks[dlIndex++];
@@ -302,7 +360,6 @@ function formatMarkdown(text) {
     return `<a href="${dl.url}" download class="download-link">📄 Descargar ${escapeHtml(filename)}</a>`;
   });
 
-  // Clean up stray <br> around download links
   html = html.replace(/(<br>\s*)+(<a [^>]*class="download-link")/g, '$2');
   html = html.replace(/(class="download-link">[^<]*<\/a>)\s*(<br>\s*)+/g, '$1');
 
@@ -351,7 +408,7 @@ function convertTables(text) {
     const trimmed = line.trim();
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
       if (/^\|[\s-:|]+\|$/.test(trimmed)) {
-        continue; // skip separator
+        continue;
       }
       if (!inTable) {
         inTable = true;

@@ -15,6 +15,7 @@
     "xlsx": "^0.18.5",
     "docx": "^9.1.1",
     "exceljs": "^4.4.0",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "@supabase/supabase-js": "^2.45.0"
   }
 }
