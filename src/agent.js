@@ -1,5 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
-const { searchCompetitors } = require('./tools/perplexity');
+const { searchCompetitors } = require('./tools/search');
 const { generatePresentation } = require('./tools/gamma');
 const { analyzeExcel } = require('./tools/excel');
 const { generateWord, generateExcel: generateExcelFile } = require('./tools/export');
@@ -28,7 +28,7 @@ Si la tabla tiene filas con "Sin datos" para algunas tiendas, mostrá igual toda
 
 CAPACIDADES:
 1. **Presentaciones**: Podés generar presentaciones usando Gamma. Cuando el usuario pida una presentación, usá la herramienta "generate_presentation".
-2. **Búsqueda de competencia**: Podés buscar precios, stock y promociones de electrodomésticos usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta.
+2. **Búsqueda de precios**: Podés buscar precios, stock y promociones de electrodomésticos en tiendas de Córdoba Argentina usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta. SIEMPRE citá la fuente URL de cada resultado.
 3. **Análisis de Excel**: Si el usuario adjuntó un archivo Excel, actuás como consultor de datos. Si el usuario no especificó qué analizar, preguntale qué aspecto le interesa (horas por persona, costos, rankings, etc.). Si especificó una pregunta, usá la herramienta "analyze_excel" directamente.
 4. **Exportar a Word/Excel**: Podés generar archivos .docx y .xlsx para descargar.
 
@@ -44,7 +44,7 @@ const TOOLS = [
   {
     name: 'search_competitors',
     description:
-      'Busca precios, stock y promociones de un electrodoméstico en tiendas argentinas. Devuelve una tabla comparativa. Usá esta herramienta siempre que el usuario mencione un electrodoméstico, aunque no especifique el modelo exacto.',
+      'Busca precios, stock y promociones de un electrodoméstico en tiendas de Córdoba Argentina usando búsqueda web. Devuelve una tabla comparativa con URLs de fuente. Usá esta herramienta siempre que el usuario mencione un electrodoméstico, aunque no especifique el modelo exacto.',
     input_schema: {
       type: 'object',
       properties: {

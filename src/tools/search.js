@@ -1,107 +1,118 @@
-const { searchMercadoLibre, formatMercadoLibreResults } = require('./scrapers/mercadolibre');
+const Anthropic = require('@anthropic-ai/sdk');
 
-const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
+const client = new Anthropic();
 
-const PERPLEXITY_DOMAINS = [
-  'oncity.com.ar',
-  'geneciohogar.com.ar',
-  'naldo.com.ar',
-  'cetrogar.com.ar',
-];
+const SEARCH_SYSTEM_PROMPT = `Sos un asistente de investigación de precios de electrodomésticos para Córdoba, Argentina.
 
-function buildPerplexityQuery(query) {
-  const domainList = PERPLEXITY_DOMAINS.join(', ');
-  return `¿Cuál es el precio actual de ${query} en ${domainList}? Incluí stock disponible y opciones de cuotas sin interés.`;
-}
+REGLA CRÍTICA — TIENDAS ESPECÍFICAS VS BÚSQUEDA LIBRE:
+- Si el usuario menciona una o más tiendas específicas en su consulta (ej: "en Frávega", "en Frávega y Naldo", "buscame en OnCity"), buscá ÚNICAMENTE en esas tiendas. No busques en ninguna otra tienda.
+- Cuando buscás en tiendas específicas, incluí SIEMPRE el nombre de la tienda en cada búsqueda web. Ej: si pide "lavarropas en Frávega", buscá "lavarropas Frávega" explícitamente.
+- Si el usuario pidió una tienda específica y no encontrás el producto ahí, decilo claramente: "No encontré este producto en [tienda]". NO busques en otras tiendas como alternativa.
+- Si el usuario NO menciona ninguna tienda, buscá libremente priorizando empresas de Córdoba Argentina: OnCity, Genecio Hogar, Naldo, Cetrogar, Musimundo, Fravega, Megatone. También podés incluir MercadoLibre y otras tiendas si tienen resultados relevantes.
 
-async function searchPerplexity(query) {
-  if (!PERPLEXITY_API_KEY) {
-    console.error('[perplexity] PERPLEXITY_API_KEY no configurada');
-    return 'Error: PERPLEXITY_API_KEY no configurada.';
-  }
+FORMATO DE RESULTADOS:
+- Organizá los resultados en una tabla con columnas: Tienda | Precio | Cuotas/Promociones | Link
+- Para CADA resultado, incluí la URL real de donde obtuviste el dato. Nunca inventés URLs.
+- Mostrá precios en pesos argentinos.
+- Si hay cuotas sin interés, indicá la cantidad.
+- Si no encontrás el producto en una tienda (en búsqueda libre), no la incluyas en la tabla.
+- Respondé siempre en español, tono directo.`;
 
-  const storeList = PERPLEXITY_DOMAINS.join(', ');
-  const systemPrompt = `Sos un asistente de investigación de mercado argentino especializado en electrodomésticos.
-Debés buscar el producto indicado en estos sitios de venta online: oncity.com.ar, geneciohogar.com.ar, naldo.com.ar, cetrogar.com.ar.
-Organizá los resultados en una tabla con columnas: Tienda | Precio | Stock | Promociones/Cuotas | URL del producto.
-- Incluí una fila por cada tienda donde encontraste el producto.
-- Si en una tienda no hay resultados, igualmente incluí la fila con "No encontrado" en Precio y Stock.
-- Para cada resultado encontrado, incluí la URL directa al producto o a la búsqueda en esa tienda.
-- Mostrá precios en pesos argentinos. Si hay cuotas sin interés, indicá la cantidad de cuotas.
-- No inventes precios ni URLs. Si no tenés el dato exacto, escribí "Consultar en ${storeList}".
-- Respondé siempre en español.`;
-
-  const searchQuery = buildPerplexityQuery(query);
-  console.log(`[perplexity] Query: "${searchQuery}"`);
-  console.log(`[perplexity] Llamando a API (modelo: sonar)...`);
-
-  let res;
-  try {
-    res = await fetch('https://api.perplexity.ai/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'sonar',
-        search_recency_filter: 'month',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: searchQuery },
-        ],
-      }),
-    });
-  } catch (err) {
-    console.error('[perplexity] Error de red:', err.message);
-    throw err;
-  }
-
-  console.log(`[perplexity] HTTP ${res.status} ${res.statusText}`);
-
-  if (!res.ok) {
-    const text = await res.text();
-    console.error(`[perplexity] Error: ${res.status} | ${text}`);
-    throw new Error(`Perplexity API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-
-  if (!content) {
-    console.warn('[perplexity] Respuesta vacía. Data:', JSON.stringify(data));
-    return 'No se obtuvieron resultados de OnCity, Genecio Hogar, Naldo y Cetrogar.';
-  }
-
-  console.log(`[perplexity] OK. Primeros 300 chars: ${content.slice(0, 300)}`);
-  return content;
-}
-
+/**
+ * Busca precios de electrodomésticos usando la búsqueda web nativa de Claude.
+ * Prioriza tiendas de Córdoba Argentina y cita fuentes con URL.
+ * @param {string} query - Producto a buscar
+ * @returns {string} Resultados formateados con fuentes
+ */
 async function searchCompetitors(query) {
-  console.log(`[search] Búsqueda iniciada: "${query}"`);
+  const searchQuery = `Buscá precios actuales de "${query}" en tiendas de electrodomésticos de Córdoba Argentina. Incluí la URL de cada resultado.`;
 
-  const [mlResult, perplexityResult] = await Promise.allSettled([
-    searchMercadoLibre(query),
-    searchPerplexity(query),
-  ]);
+  console.log(`[search] Búsqueda web iniciada: "${query}"`);
 
-  const parts = [];
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    system: SEARCH_SYSTEM_PROMPT,
+    tools: [
+      {
+        type: 'web_search_20250305',
+        name: 'web_search',
+        max_uses: 10,
+      },
+    ],
+    messages: [{ role: 'user', content: searchQuery }],
+  });
 
-  if (mlResult.status === 'fulfilled') {
-    parts.push(formatMercadoLibreResults(mlResult.value, query));
-  } else {
-    console.error('[search] Error en MercadoLibre:', mlResult.reason?.message);
-    parts.push(`**MercadoLibre**: Error al obtener resultados (${mlResult.reason?.message})`);
+  // Extraer texto de la respuesta (puede incluir múltiples bloques tras web_search)
+  const textBlocks = response.content.filter((b) => b.type === 'text');
+  const result = textBlocks.map((b) => b.text).join('\n');
+
+  if (!result.trim()) {
+    console.warn('[search] Respuesta vacía de Claude web_search');
+
+    // Si stop_reason es tool_use, necesitamos continuar el loop
+    if (response.stop_reason === 'tool_use') {
+      return await continueSearchLoop(response, [{ role: 'user', content: searchQuery }]);
+    }
+
+    return 'No se encontraron resultados para este producto.';
   }
 
-  if (perplexityResult.status === 'fulfilled') {
-    parts.push(perplexityResult.value);
-  } else {
-    console.error('[search] Error en Perplexity:', perplexityResult.reason?.message);
-    parts.push(`**Otras tiendas**: Error al obtener resultados (${perplexityResult.reason?.message})`);
+  console.log(`[search] OK. Primeros 300 chars: ${result.slice(0, 300)}`);
+  return result;
+}
+
+/**
+ * Continúa el loop de tool_use cuando Claude necesita hacer múltiples búsquedas.
+ */
+async function continueSearchLoop(initialResponse, messages) {
+  let response = initialResponse;
+
+  // Agregar respuesta del asistente al historial
+  messages.push({ role: 'assistant', content: response.content });
+
+  // Procesar tool results para web_search (server-side tool, results come automatically)
+  // Con web_search server-side, Claude maneja los resultados internamente.
+  // Si llegamos acá, re-enviar para que Claude procese los resultados.
+
+  let attempts = 0;
+  while (response.stop_reason === 'tool_use' && attempts < 5) {
+    attempts++;
+
+    // Para server-side tools como web_search, los resultados se inyectan automáticamente
+    // Solo necesitamos volver a llamar si hay tool_use blocks que no son web_search
+    const nonWebSearchTools = response.content.filter(
+      (b) => b.type === 'tool_use' && b.name !== 'web_search'
+    );
+
+    if (nonWebSearchTools.length === 0) {
+      // Todas son web_search — Claude las maneja server-side, la respuesta debería
+      // llegar completa. Si no, hacemos otro request.
+      response = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: SEARCH_SYSTEM_PROMPT,
+        tools: [
+          {
+            type: 'web_search_20250305',
+            name: 'web_search',
+            max_uses: 10,
+          },
+        ],
+        messages,
+      });
+
+      messages.push({ role: 'assistant', content: response.content });
+    } else {
+      break;
+    }
   }
 
-  return parts.join('\n\n---\n\n');
+  const textBlocks = response.content.filter((b) => b.type === 'text');
+  const result = textBlocks.map((b) => b.text).join('\n');
+
+  console.log(`[search] Loop completado tras ${attempts} iteraciones. Resultado: ${result.slice(0, 300)}`);
+  return result || 'No se encontraron resultados para este producto.';
 }
 
 module.exports = { searchCompetitors };

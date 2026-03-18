@@ -89,6 +89,6 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[${new Date().toISOString()}] Moltbot KarIA corriendo en http://localhost:${PORT}`);
-  console.log(`[${new Date().toISOString()}] PERPLEXITY_API_KEY: ${process.env.PERPLEXITY_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
+  console.log(`[${new Date().toISOString()}] Búsqueda web: Claude web_search (nativa)`);
   console.log(`[${new Date().toISOString()}] ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
 });
