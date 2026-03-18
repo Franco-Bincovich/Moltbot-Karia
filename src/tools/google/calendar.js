@@ -18,15 +18,25 @@ async function getEvents(days = 7) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const calendar = getCalendar();
-  const now = new Date();
-  const until = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
-  console.log(`[calendar] Buscando eventos de los próximos ${days} días...`);
+  // Get today's date in Argentina timezone (YYYY-MM-DD)
+  const now = new Date();
+  const todayAR = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }); // YYYY-MM-DD
+
+  // Build range: from start of today to end of last day, in Argentina time
+  const timeMin = `${todayAR}T00:00:00-03:00`;
+  // Calculate end date
+  const endDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  const endAR = endDate.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+  const timeMax = `${endAR}T23:59:59-03:00`;
+
+  console.log(`[calendar] Buscando eventos de los próximos ${days} días (${timeMin} → ${timeMax})...`);
 
   const res = await calendar.events.list({
     calendarId: 'primary',
-    timeMin: now.toISOString(),
-    timeMax: until.toISOString(),
+    timeMin,
+    timeMax,
+    timeZone: 'America/Argentina/Buenos_Aires',
     maxResults: 50,
     singleEvents: true,
     orderBy: 'startTime',
@@ -194,17 +204,20 @@ async function getTodayEvents() {
 
   const calendar = getCalendar();
 
+  // Get today's date in Argentina timezone
   const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+  const todayAR = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+  const timeMin = `${todayAR}T00:00:00-03:00`;
+  const timeMax = `${todayAR}T23:59:59-03:00`;
 
-  console.log(`[calendar] Buscando eventos de hoy...`);
+  console.log(`[calendar] Buscando eventos de hoy (${timeMin} → ${timeMax})...`);
 
   const res = await calendar.events.list({
     calendarId: 'primary',
-    timeMin: startOfDay.toISOString(),
-    timeMax: endOfDay.toISOString(),
-    maxResults: 25,
+    timeMin,
+    timeMax,
+    timeZone: 'America/Argentina/Buenos_Aires',
+    maxResults: 50,
     singleEvents: true,
     orderBy: 'startTime',
   });
