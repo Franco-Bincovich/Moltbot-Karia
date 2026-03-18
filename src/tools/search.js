@@ -13,7 +13,8 @@ FORMATO:
 - Tabla con SOLO 3 columnas: Tienda | Precio | Link
 - LINKS: DEBE ser la URL EXACTA de la página del producto específico. NUNCA uses URL de listados, categorías ni home. Si no tenés la URL exacta, poné "No disponible".
 - Precios en pesos argentinos. Si hay cuotas sin interés, agregalo al lado del precio.
-- NO agregues texto antes ni después de la tabla.`;
+- NO agregues texto antes de la tabla.
+- SIEMPRE agregá esta aclaración al final de la tabla: "* Precios consultados al momento de la búsqueda. Verificar precio actual en el link del producto."`;
 
 /**
  * Busca precios de electrodomésticos usando la búsqueda web nativa de Claude.
