@@ -168,11 +168,15 @@ function initChat() {
     try {
       let res;
 
+      const currentSession = JSON.parse(sessionStorage.getItem('karia_session') || 'null');
+      const usuarioId = currentSession?.usuario_id || null;
+
       if (pendingFile) {
         const formData = new FormData();
         formData.append('file', pendingFile);
         formData.append('message', text);
         formData.append('history', JSON.stringify(history));
+        if (usuarioId) formData.append('usuario_id', usuarioId);
 
         res = await fetch('/api/chat', {
           method: 'POST',
@@ -182,7 +186,7 @@ function initChat() {
         res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history }),
+          body: JSON.stringify({ message: text, history, usuario_id: usuarioId }),
         });
       }
 

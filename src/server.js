@@ -93,6 +93,9 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   const history = req.body.history
     ? (typeof req.body.history === 'string' ? JSON.parse(req.body.history) : req.body.history)
     : [];
+  const usuarioId = req.body.usuario_id
+    ? (typeof req.body.usuario_id === 'string' ? parseInt(req.body.usuario_id, 10) : req.body.usuario_id)
+    : null;
 
   const hasFile = !!req.file;
   const hasMessage = message.trim().length > 0;
@@ -117,7 +120,7 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
 
   try {
     console.log(`[${ts}] Llamando a handleChat...`);
-    const reply = await handleChat(message, history, excelContext);
+    const reply = await handleChat(message, history, excelContext, usuarioId);
     console.log(`[${new Date().toISOString()}] handleChat completado. Respuesta (primeros 200 chars): ${String(reply).slice(0, 200)}`);
     const result = { reply };
     if (excelContext) result.excelContext = excelContext;

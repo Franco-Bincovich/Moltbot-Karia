@@ -6,6 +6,7 @@ const { generateWord, generateExcel: generateExcelFile } = require('./tools/expo
 const { getEvents, createEvent, getTodayEvents, deleteEvent } = require('./tools/google/calendar');
 const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gmail');
 const { listFiles, getFile, uploadFile } = require('./tools/google/drive');
+const { searchContacts, addContact } = require('./tools/contacts');
 
 const client = new Anthropic();
 
@@ -66,6 +67,14 @@ CAPACIDADES:
 5. **Google Calendar**: Podés ver eventos, crear reuniones y consultar la agenda de la cuenta moltbotkaria@gmail.com.
 6. **Gmail**: Podés leer emails no leídos, buscar emails y enviar emails desde moltbotkaria@gmail.com.
 7. **Google Drive**: Podés listar archivos, leer documentos y guardar archivos en el Drive de moltbotkaria@gmail.com.
+8. **Contactos**: Podés buscar y agregar contactos del usuario.
+
+REGLA CRÍTICA — CONTACTOS Y EMAILS:
+- SIEMPRE usá "search_contacts" antes de "send_email" cuando el usuario mencione a alguien por nombre sin dar el email explícito.
+- Si search_contacts devuelve unique:true → usá ese email directamente sin preguntar.
+- Si search_contacts devuelve unique:false → listá los contactos encontrados y preguntá a cuál quiere enviarle.
+- Si search_contacts devuelve found:false → pedí el email al usuario. Una vez que lo dé, ofrecé guardarlo con add_contact.
+- Si el usuario dice "guardá a X con mail Y" o similar → usá add_contact directamente.
 
 REGLA CRÍTICA — EXPORTACIÓN DE DOCUMENTOS:
 - NUNCA generes un documento Word o Excel por tu cuenta. Solo hacelo si el usuario lo pide EXPLÍCITAMENTE con palabras como "exportar", "descargar", "generar documento", "pasame en Word", "pasame en Excel", "haceme un archivo", etc.
@@ -333,9 +342,43 @@ const TOOLS = [
       required: ['name', 'content'],
     },
   },
+  {
+    name: 'search_contacts',
+    description:
+      'Busca contactos del usuario por nombre. SIEMPRE usá esta herramienta antes de send_email cuando el usuario menciona a alguien por nombre sin dar el email.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Nombre o parte del nombre del contacto a buscar. Ej: "Hernán", "Juan Pérez".',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'add_contact',
+    description:
+      'Agrega un contacto nuevo a la lista del usuario. Usá esta herramienta cuando el usuario pida guardar un contacto o cuando ofreciste guardarlo y el usuario aceptó.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        nombre: {
+          type: 'string',
+          description: 'Nombre completo del contacto.',
+        },
+        email: {
+          type: 'string',
+          description: 'Email del contacto.',
+        },
+      },
+      required: ['nombre', 'email'],
+    },
+  },
 ];
 
-async function handleChat(userMessage, history, excelContext = null) {
+async function handleChat(userMessage, history, excelContext = null, usuarioId = null) {
   // Si no hay excelContext directo, buscarlo en el historial
   if (!excelContext) {
     for (let i = history.length - 1; i >= 0; i--) {
@@ -466,6 +509,22 @@ async function handleChat(userMessage, history, excelContext = null) {
         } else if (block.name === 'save_to_drive') {
           result = await uploadFile(block.input.name, block.input.content, block.input.mimeType || 'text/plain');
           console.log(`[agent] save_to_drive completado.`);
+        } else if (block.name === 'search_contacts') {
+          if (!usuarioId) {
+            result = 'No hay sesión de usuario activa. El usuario debe iniciar sesión.';
+          } else {
+            const contactResult = await searchContacts(block.input.query, usuarioId);
+            result = JSON.stringify(contactResult);
+            console.log(`[agent] search_contacts completado: ${result}`);
+          }
+        } else if (block.name === 'add_contact') {
+          if (!usuarioId) {
+            result = 'No hay sesión de usuario activa. El usuario debe iniciar sesión.';
+          } else {
+            const addResult = await addContact(block.input.nombre, block.input.email, usuarioId);
+            result = JSON.stringify(addResult);
+            console.log(`[agent] add_contact completado: ${result}`);
+          }
         } else {
           result = `Herramienta desconocida: ${block.name}`;
           console.warn(`[agent] Tool desconocida: ${block.name}`);
