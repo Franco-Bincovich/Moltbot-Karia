@@ -22,14 +22,28 @@ FORMATO:
  * @returns {string} Resultados formateados con fuentes
  */
 async function searchCompetitors(query) {
-  const searchQuery = `Buscá precios actuales de "${query}" en tiendas de electrodomésticos de Córdoba Argentina. Incluí la URL de cada resultado.`;
+  // Detectar si el query incluye nombres de tiendas específicas
+  const KNOWN_STORES = ['fravega', 'frávega', 'naldo', 'cetrogar', 'musimundo', 'megatone', 'oncity', 'on city', 'genecio', 'mercadolibre', 'mercado libre'];
+  const queryLower = query.toLowerCase();
+  const mentionedStores = KNOWN_STORES.filter((s) => queryLower.includes(s));
 
-  console.log(`[search] Búsqueda web iniciada: "${query}"`);
+  let systemPrompt = SEARCH_SYSTEM_PROMPT;
+  let searchQuery;
+
+  if (mentionedStores.length > 0) {
+    const storeNames = mentionedStores.join(', ');
+    systemPrompt += `\n\nIMPORTANTE: El usuario pidió buscar específicamente en: ${storeNames}. Buscá ÚNICAMENTE en esas tiendas. Si no encontrás el producto ahí, respondé "No encontré este producto en ${storeNames}" — NO busques en otras tiendas como alternativa.`;
+    searchQuery = `Buscá precios actuales de "${query}". Incluí la URL exacta del producto.`;
+  } else {
+    searchQuery = `Buscá precios actuales de "${query}" en tiendas de electrodomésticos de Córdoba Argentina. Incluí la URL de cada resultado.`;
+  }
+
+  console.log(`[search] Búsqueda web iniciada: "${query}" | Tiendas detectadas: ${mentionedStores.length > 0 ? mentionedStores.join(', ') : 'ninguna (libre)'}`);
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 800,
-    system: SEARCH_SYSTEM_PROMPT,
+    system: systemPrompt,
     tools: [
       {
         type: 'web_search_20250305',

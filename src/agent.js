@@ -68,14 +68,14 @@ const TOOLS = [
   {
     name: 'search_competitors',
     description:
-      'Busca precios, stock y promociones de un electrodoméstico en tiendas de Córdoba Argentina usando búsqueda web. Devuelve una tabla comparativa con URLs de fuente. Usá esta herramienta siempre que el usuario mencione un electrodoméstico, aunque no especifique el modelo exacto.',
+      'Busca precios, stock y promociones de un electrodoméstico en tiendas de Córdoba Argentina usando búsqueda web. Devuelve una tabla comparativa con URLs de fuente. Usá esta herramienta siempre que el usuario mencione un electrodoméstico, aunque no especifique el modelo exacto. IMPORTANTE: si el usuario menciona una tienda específica (ej: "en Frávega", "en Naldo"), DEBÉS incluir el nombre de la tienda dentro del query.',
     input_schema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description:
-            'Nombre del producto a buscar, puede ser genérico o con modelo. Ejemplos: "lavarropas Samsung 9kg", "heladera no frost 400 litros", "aire acondicionado Midea 3000 frigorías"',
+            'Nombre del producto a buscar. Si el usuario mencionó una tienda específica, INCLUIRLA en el query. Ejemplos: "lavarropas Samsung 9kg" (búsqueda libre), "lavarropas Samsung 9kg Frávega" (tienda específica), "heladera no frost Naldo Cetrogar" (varias tiendas).',
         },
       },
       required: ['query'],
