@@ -74,21 +74,58 @@ async function createEvent(title, date, time, duration = 60, description = '', a
 
   const calendar = getCalendar();
 
-  const startDateTime = new Date(`${date}T${time}:00`);
-  const endDateTime = new Date(startDateTime.getTime() + duration * 60 * 1000);
-
   console.log(`[calendar] Creando evento: "${title}" | ${date} ${time} | ${duration}min | Invitados: ${attendees.length} | Meet: ${withMeet}`);
+
+  // Build local datetime strings WITHOUT timezone suffix — Google interprets them
+  // using the timeZone field, so we avoid the UTC conversion bug (was 3 hours off).
+  const startLocal = `${date}T${time}:00`;
+  // Calculate end time by parsing hours/minutes and adding duration
+  const [startH, startM] = time.split(':').map(Number);
+  const totalMinutes = startH * 60 + startM + duration;
+  const endH = String(Math.floor(totalMinutes / 60) % 24).padStart(2, '0');
+  const endM = String(totalMinutes % 60).padStart(2, '0');
+  const endLocal = `${date}T${endH}:${endM}:00`;
+
+  // Check for conflicts on that day
+  const dayStart = `${date}T00:00:00-03:00`;
+  const dayEnd = `${date}T23:59:59-03:00`;
+  const existing = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin: dayStart,
+    timeMax: dayEnd,
+    singleEvents: true,
+    orderBy: 'startTime',
+  });
+
+  const conflicts = (existing.data.items || []).filter((ev) => {
+    if (!ev.start.dateTime) return false; // skip all-day events
+    const evStart = new Date(ev.start.dateTime);
+    const evEnd = new Date(ev.end.dateTime);
+    // Build Date objects for comparison using the Argentina offset
+    const newStart = new Date(`${startLocal}-03:00`);
+    const newEnd = new Date(`${endLocal}-03:00`);
+    return newStart < evEnd && newEnd > evStart;
+  });
+
+  if (conflicts.length > 0) {
+    const conflictList = conflicts.map((ev) => {
+      const s = new Date(ev.start.dateTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      const e = new Date(ev.end.dateTime).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      return `- **${ev.summary}** (${s} - ${e})`;
+    }).join('\n');
+    return `⚠️ Hay conflicto de horario con eventos existentes:\n${conflictList}\n\nEl evento "${title}" NO fue creado. ¿Querés que lo cree de todas formas o preferís otro horario?`;
+  }
 
   const eventBody = {
     summary: title,
     description: description || undefined,
     start: {
-      dateTime: startDateTime.toISOString(),
-      timeZone: 'America/Argentina/Cordoba',
+      dateTime: startLocal,
+      timeZone: 'America/Argentina/Buenos_Aires',
     },
     end: {
-      dateTime: endDateTime.toISOString(),
-      timeZone: 'America/Argentina/Cordoba',
+      dateTime: endLocal,
+      timeZone: 'America/Argentina/Buenos_Aires',
     },
   };
 

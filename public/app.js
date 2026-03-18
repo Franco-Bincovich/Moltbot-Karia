@@ -28,15 +28,7 @@ const KARIA_AVATAR_SVG = `<svg viewBox="0 0 28 28" width="28" height="28">
   div.innerHTML = `
     <div class="msg-avatar">${KARIA_AVATAR_SVG}</div>
     <div class="message-bubble">
-      <div class="message-content">
-        <div class="welcome-text">Hola! Soy <strong>Karia Agent</strong>. En que puedo ayudarte hoy?</div>
-        <div class="capability-cards">
-          <div class="capability-card"><strong>Presentaciones</strong> — Genero presentaciones profesionales con Gamma</div>
-          <div class="capability-card"><strong>Precios</strong> — Busco precios y promociones de electrodomesticos en Cordoba</div>
-          <div class="capability-card"><strong>Excel</strong> — Analizo archivos Excel: horas, costos, proyectos, clientes</div>
-          <div class="capability-card"><strong>Exportar</strong> — Genero documentos Word y Excel para descargar</div>
-        </div>
-      </div>
+      <div class="message-content">Hola! Soy <strong>Karia Agent</strong>, tu asistente inteligente. ¿En qué te puedo ayudar?</div>
       <div class="message-meta"><span class="msg-time">${getTimeStr()}</span></div>
     </div>`;
   messagesEl.appendChild(div);
@@ -61,6 +53,22 @@ fileRemoveBtn.addEventListener('click', () => {
   userInput.placeholder = 'Escribi tu mensaje...';
 });
 
+// === Textarea auto-resize & Enter/Shift+Enter handling ===
+userInput.addEventListener('input', () => {
+  userInput.style.height = 'auto';
+  userInput.style.height = userInput.scrollHeight + 'px';
+  // Show scrollbar only when hitting max height
+  const maxH = parseFloat(getComputedStyle(userInput).maxHeight);
+  userInput.style.overflowY = userInput.scrollHeight > maxH ? 'auto' : 'hidden';
+});
+
+userInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    chatForm.requestSubmit();
+  }
+});
+
 // === Send message ===
 chatForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -79,6 +87,7 @@ chatForm.addEventListener('submit', async (e) => {
   }
 
   userInput.value = '';
+  userInput.style.height = 'auto';
   sendBtn.disabled = true;
   attachBtn.disabled = true;
 

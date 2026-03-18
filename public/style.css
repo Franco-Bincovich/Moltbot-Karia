@@ -388,7 +388,7 @@ body {
   min-width: 0;
 }
 
-.input-wrapper input {
+.input-wrapper textarea {
   width: 100%;
   padding: 8px 4px;
   border: none;
@@ -397,10 +397,18 @@ body {
   font-size: 13.5px;
   font-family: 'Baloo 2', sans-serif;
   outline: none;
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.4;
+  max-height: calc(1.4em * 4 + 16px);
 }
 
-.input-wrapper input::placeholder {
+.input-wrapper textarea::placeholder {
   color: var(--text-muted);
+}
+
+.input-wrapper textarea::-webkit-scrollbar {
+  width: 0;
 }
 
 .file-label {
