@@ -291,6 +291,21 @@ body {
   stroke: #fff;
 }
 
+/* === Simple Download Link (Word/Excel exports) === */
+.download-link {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.download-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
 /* === Typing Indicator === */
 .typing-indicator {
   display: flex;
