@@ -3,18 +3,29 @@ const { searchCompetitors } = require('./tools/search');
 const { generatePresentation } = require('./tools/gamma');
 const { analyzeExcel } = require('./tools/excel');
 const { generateWord, generateExcel: generateExcelFile } = require('./tools/export');
-const { getEvents, createEvent, getTodayEvents } = require('./tools/google/calendar');
+const { getEvents, createEvent, getTodayEvents, deleteEvent } = require('./tools/google/calendar');
 const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gmail');
 const { listFiles, getFile, uploadFile } = require('./tools/google/drive');
 
 const client = new Anthropic();
 
 function getSystemPrompt() {
-  const today = new Date().toLocaleDateString('es-AR', {
+  const now = new Date();
+  const today = now.toLocaleDateString('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
-  return `Hoy es ${today}. Siempre que el usuario diga "mañana", "hoy", "esta semana", "el lunes", etc., calculá la fecha correcta basándote en esta fecha.
+  // Calculate tomorrow's date for explicit reference
+  const tomorrowDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const todayISO = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }); // YYYY-MM-DD
+  const tomorrowISO = tomorrowDate.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+  return `Hoy es ${today} (${todayISO}). Mañana es ${tomorrowISO}.
+
+REGLA CRÍTICA — FECHAS:
+- "hoy" = ${todayISO}
+- "mañana" = ${tomorrowISO}
+- Para cualquier referencia temporal ("esta semana", "el lunes", "el viernes"), calculá la fecha YYYY-MM-DD correcta a partir de hoy ${todayISO}.
+- SIEMPRE confirmá la fecha con el usuario antes de crear un evento de calendario. Ejemplo: "Perfecto, voy a crear el evento para el ${tomorrowISO} (mañana). ¿Confirmo?"
 
 Sos Moltbot KarIA, un agente inteligente desarrollado por KarIA.
 
@@ -227,6 +238,21 @@ const TOOLS = [
     },
   },
   {
+    name: 'delete_calendar_event',
+    description:
+      'Elimina un evento del Google Calendar de moltbotkaria@gmail.com. ANTES de eliminar, SIEMPRE: 1) Usá get_calendar_events para buscar el evento y obtener su ID. 2) Confirmá con el usuario qué evento exacto quiere eliminar. 3) Recién después de la confirmación, eliminalo.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventId: {
+          type: 'string',
+          description: 'ID del evento a eliminar. Obtené este ID usando get_calendar_events primero.',
+        },
+      },
+      required: ['eventId'],
+    },
+  },
+  {
     name: 'get_emails',
     description:
       'Obtiene los últimos emails no leídos de la cuenta moltbotkaria@gmail.com.',
@@ -420,6 +446,9 @@ async function handleChat(userMessage, history, excelContext = null) {
             block.input.withMeet || false
           );
           console.log(`[agent] create_calendar_event completado.`);
+        } else if (block.name === 'delete_calendar_event') {
+          result = await deleteEvent(block.input.eventId);
+          console.log(`[agent] delete_calendar_event completado.`);
         } else if (block.name === 'get_emails') {
           if (block.input.query) {
             result = await searchEmails(block.input.query);
