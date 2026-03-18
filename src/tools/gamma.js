@@ -6,7 +6,11 @@ async function generatePresentation(topic, details) {
     return 'Error: GAMMA_API_KEY no configurada.';
   }
 
-  const inputText = details ? `${topic}\n\n${details}` : topic;
+  // Build inputText with topic and details (includes style preference from agent)
+  let inputText = topic;
+  if (details) {
+    inputText += `\n\n${details}`;
+  }
 
   // Paso 1: Crear la generación
   console.log(`[gamma] Creando presentación: "${topic}"`);

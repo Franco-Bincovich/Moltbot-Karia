@@ -234,19 +234,37 @@ function showTyping() {
 
 // === Markdown formatting ===
 function formatMarkdown(text) {
-  let html = escapeHtml(text);
+  // Step 1: Extract all download links BEFORE escaping, to avoid HTML leakage
+  const downloadLinks = [];
+  const DOWNLOAD_PLACEHOLDER = '___DOWNLOAD_PLACEHOLDER___';
+
+  // Extract markdown-style download links: [text](/download/file)
+  let cleaned = text.replace(
+    /\[([^\]]*)\]\((\/download\/[^\s)]+)\)/g,
+    (match, linkText, url) => {
+      downloadLinks.push(url);
+      return DOWNLOAD_PLACEHOLDER;
+    }
+  );
+
+  // Extract bare /download/ URLs
+  cleaned = cleaned.replace(
+    /(\/download\/[^\s<)]+)/g,
+    (match, url) => {
+      downloadLinks.push(url);
+      return DOWNLOAD_PLACEHOLDER;
+    }
+  );
+
+  let html = escapeHtml(cleaned);
 
   // Bold **text**
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-  // Links [text](url) — supports both absolute and relative URLs
+  // Links [text](url) — non-download links only
   html = html.replace(
     /\[([^\]]+)\]\(([^\s)]+)\)/g,
-    (match, linkText, url) => {
-      const isDownload = url.startsWith('/download/');
-      const extra = isDownload ? ' download' : ' target="_blank" rel="noopener"';
-      return `<a href="${url}"${extra}>${linkText}</a>`;
-    }
+    '<a href="$2" target="_blank" rel="noopener">$1</a>'
   );
 
   // Bare URLs (not already inside href="...")
@@ -255,38 +273,37 @@ function formatMarkdown(text) {
     '<a href="$1" target="_blank" rel="noopener">$1</a>'
   );
 
-  // Bare download links not already in an <a> tag
-  html = html.replace(
-    /(?<!")(\/download\/[^\s<)]+)/g,
-    '<a href="$1" download>$1</a>'
-  );
-
   // Tables
   html = convertTables(html);
 
   // Line breaks
   html = html.replace(/\n/g, '<br>');
 
-  // Post-process: convert download links into file bubbles inline
-  html = html.replace(
-    /<a href="(\/download\/([^"]+))"[^>]*>[^<]*<\/a>/g,
-    (match, url, filename) => {
-      const ext = filename.split('.').pop().toLowerCase();
-      const { iconClass, iconText } = getFileIconInfo(ext);
-      return `<div class="file-bubble" style="margin:8px 0">
-        <div class="file-icon ${iconClass}">${iconText}</div>
-        <div class="file-info">
-          <div class="file-name">${escapeHtml(decodeURIComponent(filename))}</div>
-          <div class="file-status">Listo para descargar</div>
-        </div>
-        <a href="${url}" download class="file-download-btn" title="Descargar">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-        </a>
-      </div>`;
-    }
-  );
+  // Replace download placeholders with styled file bubbles
+  let dlIndex = 0;
+  html = html.replace(new RegExp(DOWNLOAD_PLACEHOLDER, 'g'), () => {
+    const url = downloadLinks[dlIndex++];
+    if (!url) return '';
+    const filename = url.replace('/download/', '');
+    const ext = filename.split('.').pop().toLowerCase();
+    const { iconClass, iconText } = getFileIconInfo(ext);
+    return `<div class="file-bubble" style="margin:8px 0">
+      <div class="file-icon ${iconClass}">${iconText}</div>
+      <div class="file-info">
+        <div class="file-name">${escapeHtml(decodeURIComponent(filename))}</div>
+        <div class="file-status">Listo para descargar</div>
+      </div>
+      <a href="${url}" download class="file-download-btn" title="Descargar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </a>
+    </div>`;
+  });
+
+  // Clean up stray <br> around file bubbles
+  html = html.replace(/(<br>\s*)+(<div class="file-bubble")/g, '$2');
+  html = html.replace(/(<\/div>)\s*(<br>\s*)+/g, '$1');
 
   return html;
 }

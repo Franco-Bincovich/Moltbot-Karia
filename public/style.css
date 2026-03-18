@@ -222,10 +222,11 @@ body {
   border-radius: 14px 4px 14px 14px;
 }
 
-.message.bot .file-bubble {
-  background: rgba(67,209,201,0.08);
-  border: 1px solid rgba(67,209,201,0.2);
-  border-radius: 4px 14px 14px 14px;
+.message.bot .file-bubble,
+.message-content .file-bubble {
+  background: var(--bg-agent);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
 }
 
 .file-icon {
@@ -251,7 +252,7 @@ body {
 }
 
 .file-name {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -265,8 +266,8 @@ body {
 }
 
 .file-status {
-  font-size: 10.5px;
-  color: var(--text-muted);
+  font-size: 10px;
+  color: var(--text-secondary);
   margin-top: 1px;
 }
 

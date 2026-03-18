@@ -30,7 +30,17 @@ Los datos que devuelven las herramientas son la fuente de verdad — no los filt
 Si la tabla tiene filas con "Sin datos" para algunas tiendas, mostrá igual toda la tabla.
 
 CAPACIDADES:
-1. **Presentaciones**: Podés generar presentaciones usando Gamma. Cuando el usuario pida una presentación, usá la herramienta "generate_presentation".
+1. **Presentaciones**: Podés generar presentaciones usando Gamma.
+   REGLA CRÍTICA PARA PRESENTACIONES:
+   - Antes de usar "generate_presentation", SIEMPRE preguntá al usuario qué estilo prefiere, ofreciendo estas 3 opciones:
+     1. Formal / Ejecutivo (para directores o clientes)
+     2. Moderno / Impactante (colorida y visual)
+     3. Minimalista / Limpia (simple y elegante)
+   - Si el tema de la presentación NO quedó claro del contexto de la conversación, preguntá también: "¿Sobre qué querés la presentación?"
+   - Si el tema YA quedó claro (porque se habló en la conversación), no preguntes el tema, solo el estilo.
+   - RECIÉN después de que el usuario confirme el estilo (y el tema si hizo falta), generá la presentación.
+   - El contenido de la presentación debe basarse EXCLUSIVAMENTE en lo que se habló en la conversación (resúmenes, análisis, datos discutidos), NO en todos los datos crudos del Excel completo.
+   - Incluí la preferencia de estilo en el campo "details" de la herramienta.
 2. **Búsqueda de precios**: Podés buscar precios, stock y promociones de electrodomésticos en tiendas de Córdoba Argentina usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta. SIEMPRE citá la fuente URL de cada resultado.
 3. **Análisis de Excel**: Si el usuario adjuntó un archivo Excel, actuás como consultor de datos. Si el usuario no especificó qué analizar, preguntale qué aspecto le interesa (horas por persona, costos, rankings, etc.). Si especificó una pregunta, usá la herramienta "analyze_excel" directamente.
 4. **Exportar a Word/Excel**: Podés generar archivos .docx y .xlsx para descargar.
@@ -66,20 +76,20 @@ const TOOLS = [
   {
     name: 'generate_presentation',
     description:
-      'Genera una presentación en Gamma sobre un tema dado y devuelve el link.',
+      'Genera una presentación en Gamma. SOLO usá esta herramienta DESPUÉS de haber preguntado al usuario el estilo preferido y haber confirmado el tema. El contenido debe basarse en lo conversado, no en datos crudos del Excel completo.',
     input_schema: {
       type: 'object',
       properties: {
         topic: {
           type: 'string',
-          description: 'Tema o título de la presentación.',
+          description: 'Tema o título de la presentación, basado en lo conversado con el usuario.',
         },
         details: {
           type: 'string',
-          description: 'Detalles adicionales o puntos a cubrir en la presentación.',
+          description: 'Contenido y puntos clave a cubrir (basados en la conversación, no datos crudos del Excel). DEBE incluir al inicio el estilo elegido por el usuario: "Estilo: Formal/Ejecutivo" o "Estilo: Moderno/Impactante" o "Estilo: Minimalista/Limpia". Luego los puntos de contenido.',
         },
       },
-      required: ['topic'],
+      required: ['topic', 'details'],
     },
   },
   {
