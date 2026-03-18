@@ -12,7 +12,7 @@ REGLA CRÍTICA — TIENDAS ESPECÍFICAS VS BÚSQUEDA LIBRE:
 
 FORMATO DE RESULTADOS:
 - Organizá los resultados en una tabla con columnas: Tienda | Precio | Cuotas/Promociones | Link
-- Para CADA resultado, incluí la URL real de donde obtuviste el dato. Nunca inventés URLs.
+- REGLA CRÍTICA SOBRE LINKS: El link de cada fila DEBE ser la URL EXACTA de la página del producto específico encontrado (la página donde se ve ese producto con ese precio). NUNCA uses la URL de un listado general, de una categoría, de la home de la tienda, ni de otro producto distinto. Si no tenés la URL exacta de la página del producto, poné "No disponible" en la columna Link en vez de inventar o adivinar una URL.
 - Mostrá precios en pesos argentinos.
 - Si hay cuotas sin interés, indicá la cantidad.
 - Si no encontrás el producto en una tienda (en búsqueda libre), no la incluyas en la tabla.

@@ -7,7 +7,11 @@
       "Read(//Users/franbincovich/n/bin/**)",
       "Read(//Users/franbincovich/.nvm/versions/**)",
       "Read(//opt/homebrew/bin/**)",
-      "Read(//opt/**)"
+      "Read(//opt/**)",
+      "Bash(node -c src/agent.js)",
+      "Bash(node -c src/tools/search.js)",
+      "Bash(/usr/local/bin/node -c src/agent.js)",
+      "Bash(/opt/homebrew/bin/node -c src/agent.js)"
     ]
   }
 }

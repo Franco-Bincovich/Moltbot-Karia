@@ -9,7 +9,14 @@ const { listFiles, getFile, uploadFile } = require('./tools/google/drive');
 
 const client = new Anthropic();
 
-const SYSTEM_PROMPT = `Sos Moltbot KarIA, un agente inteligente desarrollado por KarIA.
+function getSystemPrompt() {
+  const today = new Date().toLocaleDateString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+  return `Hoy es ${today}. Siempre que el usuario diga "mañana", "hoy", "esta semana", "el lunes", etc., calculá la fecha correcta basándote en esta fecha.
+
+Sos Moltbot KarIA, un agente inteligente desarrollado por KarIA.
 
 REGLAS:
 - Siempre respondés en español.
@@ -55,6 +62,7 @@ REGLA CRÍTICA — EXPORTACIÓN DE DOCUMENTOS:
 - Si el usuario ya especificó exactamente qué quiere en el documento en el mismo mensaje donde lo pide, no hace falta preguntar de nuevo — generalo directamente.
 
 Cuando necesites usar una herramienta, invocala. No simules resultados.`;
+}
 
 const TOOLS = [
   {
@@ -312,9 +320,15 @@ async function handleChat(userMessage, history, excelContext = null) {
     }
   }
 
-  // Filtrar los mensajes [EXCEL_DATA] del historial para no enviarlos a Claude
-  const messages = history
-    .filter((m) => !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[EXCEL_DATA]\n')))
+  // Filtrar los mensajes [EXCEL_DATA] del historial y limitar a los últimos 6 mensajes
+  // para evitar superar el rate limit de tokens (429)
+  const MAX_HISTORY_MESSAGES = 6;
+  const filtered = history
+    .filter((m) => !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[EXCEL_DATA]\n')));
+  const trimmed = filtered.slice(-MAX_HISTORY_MESSAGES);
+  // Ensure first message is from 'user' (Claude API requires alternating roles starting with user)
+  const firstUserIdx = trimmed.findIndex((m) => m.role === 'user');
+  const messages = (firstUserIdx > 0 ? trimmed.slice(firstUserIdx) : trimmed)
     .map((m) => ({ role: m.role, content: m.content }));
 
   // Si hay Excel, inyectarlo en el mensaje del usuario
@@ -333,7 +347,7 @@ async function handleChat(userMessage, history, excelContext = null) {
   let response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    system: getSystemPrompt(),
     tools: TOOLS,
     messages,
   });
@@ -355,8 +369,14 @@ async function handleChat(userMessage, history, excelContext = null) {
       let result;
       try {
         if (block.name === 'search_competitors') {
-          result = await searchCompetitors(block.input.query);
-          console.log(`[agent] search_competitors completado. Resultado (primeros 300 chars): ${String(result).slice(0, 300)}`);
+          let rawResult = await searchCompetitors(block.input.query);
+          // Truncar resultados de búsqueda a 2000 chars para evitar rate limit 429
+          const MAX_SEARCH_CHARS = 2000;
+          if (rawResult.length > MAX_SEARCH_CHARS) {
+            rawResult = rawResult.slice(0, MAX_SEARCH_CHARS) + '\n\n[Resultados truncados por límite de tamaño]';
+          }
+          result = rawResult;
+          console.log(`[agent] search_competitors completado. Resultado (${result.length} chars, primeros 300): ${String(result).slice(0, 300)}`);
         } else if (block.name === 'generate_presentation') {
           result = await generatePresentation(block.input.topic, block.input.details);
           console.log(`[agent] generate_presentation completado.`);
@@ -439,7 +459,7 @@ async function handleChat(userMessage, history, excelContext = null) {
     response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: getSystemPrompt(),
       tools: TOOLS,
       messages,
     });
