@@ -182,7 +182,7 @@ const TOOLS = [
   {
     name: 'create_calendar_event',
     description:
-      'Crea un evento en el Google Calendar de moltbotkaria@gmail.com.',
+      'Crea un evento en el Google Calendar de moltbotkaria@gmail.com. Soporta invitados y Google Meet.',
     input_schema: {
       type: 'object',
       properties: {
@@ -205,6 +205,14 @@ const TOOLS = [
         description: {
           type: 'string',
           description: 'Descripción opcional del evento.',
+        },
+        attendees: {
+          type: 'string',
+          description: 'Emails de invitados separados por coma. Ej: "hernan@gmail.com, ana@empresa.com". Si el usuario menciona a alguien con su email, agregalo acá.',
+        },
+        withMeet: {
+          type: 'boolean',
+          description: 'Si true, crea un link de Google Meet para el evento. Usá true cuando el usuario pida "con Meet", "con videollamada", "con link de reunión", etc.',
         },
       },
       required: ['title', 'date', 'time'],
@@ -379,12 +387,17 @@ async function handleChat(userMessage, history, excelContext = null) {
           result = days === 0 ? await getTodayEvents() : await getEvents(days || 7);
           console.log(`[agent] get_calendar_events completado.`);
         } else if (block.name === 'create_calendar_event') {
+          const attendeesList = block.input.attendees
+            ? block.input.attendees.split(',').map((e) => e.trim()).filter(Boolean)
+            : [];
           result = await createEvent(
             block.input.title,
             block.input.date,
             block.input.time,
             block.input.duration || 60,
-            block.input.description || ''
+            block.input.description || '',
+            attendeesList,
+            block.input.withMeet || false
           );
           console.log(`[agent] create_calendar_event completado.`);
         } else if (block.name === 'get_emails') {

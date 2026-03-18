@@ -69,16 +69,20 @@ async function sendEmail(to, subject, body) {
 
   console.log(`[gmail] Enviando email a ${to} | Asunto: "${subject}"`);
 
+  // Encode subject as RFC 2047 UTF-8 to handle special characters
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
+
   const rawMessage = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodedSubject}`,
     'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
     'MIME-Version: 1.0',
     '',
-    body,
+    Buffer.from(body, 'utf-8').toString('base64'),
   ].join('\r\n');
 
-  const encodedMessage = Buffer.from(rawMessage)
+  const encodedMessage = Buffer.from(rawMessage, 'utf-8')
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')

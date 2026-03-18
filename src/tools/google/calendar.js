@@ -65,9 +65,11 @@ async function getEvents(days = 7) {
  * @param {string} time - Hora en formato HH:MM (24h)
  * @param {number} duration - Duración en minutos (default 60)
  * @param {string} description - Descripción opcional
+ * @param {string[]} attendees - Lista de emails de invitados
+ * @param {boolean} withMeet - Si true, crea link de Google Meet
  * @returns {string} Confirmación con link al evento
  */
-async function createEvent(title, date, time, duration = 60, description = '') {
+async function createEvent(title, date, time, duration = 60, description = '', attendees = [], withMeet = false) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const calendar = getCalendar();
@@ -75,28 +77,63 @@ async function createEvent(title, date, time, duration = 60, description = '') {
   const startDateTime = new Date(`${date}T${time}:00`);
   const endDateTime = new Date(startDateTime.getTime() + duration * 60 * 1000);
 
-  console.log(`[calendar] Creando evento: "${title}" | ${date} ${time} | ${duration}min`);
+  console.log(`[calendar] Creando evento: "${title}" | ${date} ${time} | ${duration}min | Invitados: ${attendees.length} | Meet: ${withMeet}`);
 
-  const res = await calendar.events.insert({
-    calendarId: 'primary',
-    requestBody: {
-      summary: title,
-      description: description || undefined,
-      start: {
-        dateTime: startDateTime.toISOString(),
-        timeZone: 'America/Argentina/Cordoba',
-      },
-      end: {
-        dateTime: endDateTime.toISOString(),
-        timeZone: 'America/Argentina/Cordoba',
-      },
+  const eventBody = {
+    summary: title,
+    description: description || undefined,
+    start: {
+      dateTime: startDateTime.toISOString(),
+      timeZone: 'America/Argentina/Cordoba',
     },
-  });
+    end: {
+      dateTime: endDateTime.toISOString(),
+      timeZone: 'America/Argentina/Cordoba',
+    },
+  };
+
+  if (attendees.length > 0) {
+    eventBody.attendees = attendees.map((email) => ({ email: email.trim() }));
+  }
+
+  if (withMeet) {
+    const requestId = `meet-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    eventBody.conferenceData = {
+      createRequest: {
+        requestId,
+        conferenceSolutionKey: { type: 'hangoutsMeet' },
+      },
+    };
+  }
+
+  const insertParams = {
+    calendarId: 'primary',
+    requestBody: eventBody,
+    sendUpdates: attendees.length > 0 ? 'all' : 'none',
+  };
+
+  if (withMeet) {
+    insertParams.conferenceDataVersion = 1;
+  }
+
+  const res = await calendar.events.insert(insertParams);
 
   const event = res.data;
   console.log(`[calendar] Evento creado: ${event.id}`);
 
-  return `Evento creado: **${event.summary}**\nFecha: ${date} a las ${time}\nDuración: ${duration} minutos\nLink: ${event.htmlLink}`;
+  let response = `Evento creado: **${event.summary}**\nFecha: ${date} a las ${time}\nDuración: ${duration} minutos`;
+
+  if (attendees.length > 0) {
+    response += `\nInvitados: ${attendees.join(', ')}`;
+  }
+
+  const meetLink = event.hangoutLink || event.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri;
+  if (meetLink) {
+    response += `\nGoogle Meet: ${meetLink}`;
+  }
+
+  response += `\nLink: ${event.htmlLink}`;
+  return response;
 }
 
 /**
