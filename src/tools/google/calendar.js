@@ -38,16 +38,17 @@ async function getEvents(days = 7) {
     return `No hay eventos en los próximos ${days} días.`;
   }
 
+  const TZ = 'America/Argentina/Buenos_Aires';
   const formatted = events.map((ev) => {
     const start = ev.start.dateTime || ev.start.date;
     const end = ev.end.dateTime || ev.end.date;
     const date = new Date(start);
-    const dateStr = date.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+    const dateStr = date.toLocaleDateString('es-AR', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' });
     const timeStr = ev.start.dateTime
-      ? date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+      ? date.toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false })
       : 'Todo el día';
     const endTime = ev.end.dateTime
-      ? new Date(end).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+      ? new Date(end).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false })
       : '';
     const timeRange = endTime ? `${timeStr} - ${endTime}` : timeStr;
 
@@ -214,10 +215,11 @@ async function getTodayEvents() {
     return 'No hay eventos para hoy.';
   }
 
+  const TZ_TODAY = 'America/Argentina/Buenos_Aires';
   const formatted = events.map((ev) => {
     const start = ev.start.dateTime || ev.start.date;
     const timeStr = ev.start.dateTime
-      ? new Date(start).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+      ? new Date(start).toLocaleTimeString('es-AR', { timeZone: TZ_TODAY, hour: '2-digit', minute: '2-digit', hour12: false })
       : 'Todo el día';
     return `- **${ev.summary || '(Sin título)'}** | ${timeStr}${ev.description ? ` | ${ev.description}` : ''} | ID: ${ev.id}`;
   });
