@@ -49,7 +49,17 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
-logoutBtn.addEventListener('click', () => {
+logoutBtn.addEventListener('click', async () => {
+  const currentSession = JSON.parse(sessionStorage.getItem('karia_session') || 'null');
+  if (currentSession?.sesion_id) {
+    try {
+      await fetch('/api/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sesion_id: currentSession.sesion_id }),
+      });
+    } catch (e) { /* ignore */ }
+  }
   sessionStorage.removeItem('karia_session');
   loginScreen.style.display = 'flex';
   chatContainer.style.display = 'none';

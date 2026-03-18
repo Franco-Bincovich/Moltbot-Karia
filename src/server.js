@@ -67,12 +67,46 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
     }
 
-    console.log(`[auth] Login exitoso: ${data.nombre} (${data.email})`);
-    res.json({ usuario_id: data.id, nombre: data.nombre, email: data.email });
+    // Insert session record
+    const { data: sesion, error: sesionError } = await supabase
+      .from('sesiones')
+      .insert({ usuario_id: data.id, iniciada_at: new Date().toISOString() })
+      .select('id')
+      .single();
+
+    if (sesionError) {
+      console.warn('[auth] No se pudo registrar sesión:', sesionError.message);
+    }
+
+    const sesionId = sesion?.id || null;
+    console.log(`[auth] Login exitoso: ${data.nombre} (${data.email}) | Sesión: ${sesionId}`);
+    res.json({ usuario_id: data.id, nombre: data.nombre, email: data.email, sesion_id: sesionId });
   } catch (err) {
     console.error('[auth] Error en login:', err.message);
     res.status(500).json({ error: 'Error interno al verificar credenciales.' });
   }
+});
+
+// Logout endpoint
+app.post('/api/logout', async (req, res) => {
+  const { sesion_id } = req.body;
+
+  if (!sesion_id || !supabase) {
+    return res.json({ ok: true });
+  }
+
+  try {
+    await supabase
+      .from('sesiones')
+      .update({ cerrada_at: new Date().toISOString() })
+      .eq('id', sesion_id);
+
+    console.log(`[auth] Sesión cerrada: ${sesion_id}`);
+  } catch (err) {
+    console.error('[auth] Error cerrando sesión:', err.message);
+  }
+
+  res.json({ ok: true });
 });
 
 // Endpoint de descarga de archivos exportados
