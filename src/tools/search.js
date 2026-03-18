@@ -27,7 +27,7 @@ async function searchCompetitors(query) {
   console.log(`[search] Búsqueda web iniciada: "${query}"`);
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 800,
     system: SEARCH_SYSTEM_PROMPT,
     tools: [
@@ -92,7 +92,7 @@ async function continueSearchLoop(initialResponse, messages) {
       // Todas son web_search — Claude las maneja server-side, la respuesta debería
       // llegar completa. Si no, hacemos otro request.
       response = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 800,
         system: SEARCH_SYSTEM_PROMPT,
         tools: [
