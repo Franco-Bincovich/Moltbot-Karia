@@ -3,6 +3,9 @@ const { searchCompetitors } = require('./tools/search');
 const { generatePresentation } = require('./tools/gamma');
 const { analyzeExcel } = require('./tools/excel');
 const { generateWord, generateExcel: generateExcelFile } = require('./tools/export');
+const { getEvents, createEvent, getTodayEvents } = require('./tools/google/calendar');
+const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gmail');
+const { listFiles, getFile, uploadFile } = require('./tools/google/drive');
 
 const client = new Anthropic();
 
@@ -31,6 +34,9 @@ CAPACIDADES:
 2. **Búsqueda de precios**: Podés buscar precios, stock y promociones de electrodomésticos en tiendas de Córdoba Argentina usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta. SIEMPRE citá la fuente URL de cada resultado.
 3. **Análisis de Excel**: Si el usuario adjuntó un archivo Excel, actuás como consultor de datos. Si el usuario no especificó qué analizar, preguntale qué aspecto le interesa (horas por persona, costos, rankings, etc.). Si especificó una pregunta, usá la herramienta "analyze_excel" directamente.
 4. **Exportar a Word/Excel**: Podés generar archivos .docx y .xlsx para descargar.
+5. **Google Calendar**: Podés ver eventos, crear reuniones y consultar la agenda de la cuenta moltbotkaria@gmail.com.
+6. **Gmail**: Podés leer emails no leídos, buscar emails y enviar emails desde moltbotkaria@gmail.com.
+7. **Google Drive**: Podés listar archivos, leer documentos y guardar archivos en el Drive de moltbotkaria@gmail.com.
 
 REGLA CRÍTICA — EXPORTACIÓN DE DOCUMENTOS:
 - NUNCA generes un documento Word o Excel por tu cuenta. Solo hacelo si el usuario lo pide EXPLÍCITAMENTE con palabras como "exportar", "descargar", "generar documento", "pasame en Word", "pasame en Excel", "haceme un archivo", etc.
@@ -148,6 +154,132 @@ const TOOLS = [
       required: ['headers', 'rows', 'filename'],
     },
   },
+  {
+    name: 'get_calendar_events',
+    description:
+      'Obtiene eventos del Google Calendar de moltbotkaria@gmail.com. Podés consultar los próximos días o solo los eventos de hoy.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'number',
+          description: 'Cantidad de días a consultar (default 7). Usá 0 para ver solo eventos de hoy.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_calendar_event',
+    description:
+      'Crea un evento en el Google Calendar de moltbotkaria@gmail.com.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Título del evento.',
+        },
+        date: {
+          type: 'string',
+          description: 'Fecha del evento en formato YYYY-MM-DD.',
+        },
+        time: {
+          type: 'string',
+          description: 'Hora de inicio en formato HH:MM (24h). Ej: "14:30".',
+        },
+        duration: {
+          type: 'number',
+          description: 'Duración en minutos (default 60).',
+        },
+        description: {
+          type: 'string',
+          description: 'Descripción opcional del evento.',
+        },
+      },
+      required: ['title', 'date', 'time'],
+    },
+  },
+  {
+    name: 'get_emails',
+    description:
+      'Obtiene los últimos emails no leídos de la cuenta moltbotkaria@gmail.com.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Cantidad máxima de emails a traer (default 10).',
+        },
+        query: {
+          type: 'string',
+          description: 'Término de búsqueda opcional para filtrar emails (compatible con operadores de Gmail como from:, subject:, etc.).',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'send_email',
+    description:
+      'Envía un email desde moltbotkaria@gmail.com.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: {
+          type: 'string',
+          description: 'Dirección de email del destinatario.',
+        },
+        subject: {
+          type: 'string',
+          description: 'Asunto del email.',
+        },
+        body: {
+          type: 'string',
+          description: 'Cuerpo del email en texto plano.',
+        },
+      },
+      required: ['to', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'search_drive',
+    description:
+      'Busca y lista archivos en el Google Drive de moltbotkaria@gmail.com.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Término de búsqueda para filtrar archivos por nombre. Dejá vacío para listar los más recientes.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'save_to_drive',
+    description:
+      'Guarda un archivo de texto en el Google Drive de moltbotkaria@gmail.com.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Nombre del archivo con extensión. Ej: "informe.txt", "datos.csv".',
+        },
+        content: {
+          type: 'string',
+          description: 'Contenido del archivo.',
+        },
+        mimeType: {
+          type: 'string',
+          description: 'Tipo MIME del archivo. Default: "text/plain". Otros: "text/csv", "application/json".',
+        },
+      },
+      required: ['name', 'content'],
+    },
+  },
 ];
 
 async function handleChat(userMessage, history, excelContext = null) {
@@ -232,6 +364,35 @@ async function handleChat(userMessage, history, excelContext = null) {
           const fileName = require('path').basename(filePath);
           result = `Archivo Excel generado. Link de descarga: /download/${fileName}`;
           console.log(`[agent] export_to_excel completado: ${filePath}`);
+        } else if (block.name === 'get_calendar_events') {
+          const days = block.input.days;
+          result = days === 0 ? await getTodayEvents() : await getEvents(days || 7);
+          console.log(`[agent] get_calendar_events completado.`);
+        } else if (block.name === 'create_calendar_event') {
+          result = await createEvent(
+            block.input.title,
+            block.input.date,
+            block.input.time,
+            block.input.duration || 60,
+            block.input.description || ''
+          );
+          console.log(`[agent] create_calendar_event completado.`);
+        } else if (block.name === 'get_emails') {
+          if (block.input.query) {
+            result = await searchEmails(block.input.query);
+          } else {
+            result = await getUnreadEmails(block.input.limit || 10);
+          }
+          console.log(`[agent] get_emails completado.`);
+        } else if (block.name === 'send_email') {
+          result = await sendEmail(block.input.to, block.input.subject, block.input.body);
+          console.log(`[agent] send_email completado.`);
+        } else if (block.name === 'search_drive') {
+          result = await listFiles(block.input.query || '');
+          console.log(`[agent] search_drive completado.`);
+        } else if (block.name === 'save_to_drive') {
+          result = await uploadFile(block.input.name, block.input.content, block.input.mimeType || 'text/plain');
+          console.log(`[agent] save_to_drive completado.`);
         } else {
           result = `Herramienta desconocida: ${block.name}`;
           console.warn(`[agent] Tool desconocida: ${block.name}`);
