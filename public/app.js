@@ -15,7 +15,7 @@ const sidebarNewBtn = document.getElementById('sidebarNewBtn');
 // === State ===
 const history = [];
 let pendingFile = null;
-let currentSesionId = null;  // tracks current session in Supabase
+let currentSessionId = null;  // tracks current session UUID in Supabase
 let activeSidebarItem = null;
 
 // === KarIA avatar ===
@@ -74,7 +74,7 @@ async function selectSession(sesionId, itemEl) {
   activeSidebarItem = itemEl;
 
   // Reset chat state
-  currentSesionId = sesionId;
+  currentSessionId = sesionId;
   history.length = 0;
   pendingFile = null;
   fileInput.value = '';
@@ -111,7 +111,7 @@ async function selectSession(sesionId, itemEl) {
 
 // === New conversation ===
 function startNewConversation() {
-  currentSesionId = null;
+  currentSessionId = null;
   history.length = 0;
   pendingFile = null;
   fileInput.value = '';
@@ -227,24 +227,28 @@ chatForm.addEventListener('submit', async (e) => {
 
   try {
     // Create session on first message of a new conversation
-    if (!currentSesionId && text) {
+    if (!currentSessionId && text) {
       try {
         const sessionRes = await fetch('/api/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ firstMessage: text }),
         });
-        if (sessionRes.ok) {
-          const session = await sessionRes.json();
-          currentSesionId = session.id;
-          console.log(`[app] Sesión creada: ${currentSesionId} "${session.nombre}"`);
-          // Refresh sidebar and mark new session as active
-          await loadSidebar(currentSesionId);
+        const session = await sessionRes.json();
+        console.log('[app] Respuesta de POST /api/sessions:', session);
+        if (sessionRes.ok && session.id) {
+          currentSessionId = session.id;
+          console.log(`[app] Session UUID guardado: ${currentSessionId}`);
+          await loadSidebar(currentSessionId);
+        } else {
+          console.warn('[app] Respuesta sin id válido:', session);
         }
       } catch (err) {
         console.warn('[app] No se pudo crear sesión:', err.message);
       }
     }
+
+    console.log(`[app] Enviando /api/chat — sesion_id: ${currentSessionId}`);
 
     let res;
     if (pendingFile) {
@@ -252,13 +256,13 @@ chatForm.addEventListener('submit', async (e) => {
       formData.append('file', pendingFile);
       formData.append('message', text);
       formData.append('history', JSON.stringify(history));
-      if (currentSesionId) formData.append('sesion_id', currentSesionId);
+      if (currentSessionId) formData.append('sesion_id', currentSessionId);
       res = await fetch('/api/chat', { method: 'POST', body: formData });
     } else {
       res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history, sesion_id: currentSesionId }),
+        body: JSON.stringify({ message: text, history, sesion_id: currentSessionId }),
       });
     }
 

@@ -145,9 +145,7 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   const history = req.body.history
     ? (typeof req.body.history === 'string' ? JSON.parse(req.body.history) : req.body.history)
     : [];
-  const sesionId = req.body.sesion_id
-    ? (typeof req.body.sesion_id === 'string' ? parseInt(req.body.sesion_id, 10) : req.body.sesion_id)
-    : null;
+  const sesionId = req.body.sesion_id || null;
 
   const hasFile = !!req.file;
   const hasMessage = message.trim().length > 0;
