@@ -17,6 +17,8 @@ const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY)
   ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
   : null;
 
+console.log('[server] SUPABASE_SERVICE_KEY (primeros 20 chars):', process.env.SUPABASE_SERVICE_KEY?.slice(0, 20) ?? 'NO CONFIGURADA');
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
