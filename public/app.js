@@ -16,11 +16,109 @@ const learningBackBtn = document.getElementById('learningBackBtn');
 const learningTitleBtn = document.getElementById('learningTitleBtn');
 const learningNewBtn = document.getElementById('learningNewBtn');
 
-// === State ===
+// === Estado ===
 const history = [];
 let pendingFile = null;
-let currentSessionId = null;  // tracks current session UUID in Supabase
+let currentSessionId = null;  // UUID de la sesión activa en Supabase
 let activeSidebarItem = null;
+
+// === Autenticación ===
+
+/** Retorna el JWT almacenado en sessionStorage, o null si no existe. */
+function getToken() {
+  return sessionStorage.getItem('karia_token');
+}
+
+/**
+ * Retorna el header Authorization para incluir en cada request al servidor.
+ * Si no hay token, retorna un objeto vacío (el servidor responderá 401).
+ */
+function getAuthHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Muestra la pantalla de login y oculta la app. */
+function mostrarLogin() {
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('appShell').style.display = 'none';
+}
+
+/** Oculta el login, muestra la app y actualiza el nombre del usuario en el header. */
+function mostrarApp(nombreUsuario) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'flex';
+  document.getElementById('headerUserName').textContent = nombreUsuario || '';
+}
+
+/** Cierra la sesión: limpia sessionStorage y vuelve al login. */
+function logout() {
+  sessionStorage.removeItem('karia_token');
+  sessionStorage.removeItem('karia_user');
+  mostrarLogin();
+}
+
+// Inicialización: verificar si ya hay sesión activa
+(function initAuth() {
+  const token = getToken();
+  const userData = sessionStorage.getItem('karia_user');
+  if (token && userData) {
+    try {
+      const user = JSON.parse(userData);
+      mostrarApp(user.nombre);
+      showWelcome();
+      loadSidebar();
+    } catch {
+      logout();
+    }
+  } else {
+    mostrarLogin();
+  }
+})();
+
+// Manejo del formulario de login
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const loginBtn = document.getElementById('loginBtn');
+  const loginError = document.getElementById('loginError');
+
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Ingresando...';
+  loginError.classList.remove('visible');
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      loginError.textContent = data.error || 'Error al ingresar.';
+      loginError.classList.add('visible');
+      return;
+    }
+
+    // Guardar token y datos del usuario en sessionStorage
+    sessionStorage.setItem('karia_token', data.token);
+    sessionStorage.setItem('karia_user', JSON.stringify(data.usuario));
+
+    mostrarApp(data.usuario.nombre);
+    showWelcome();
+    loadSidebar();
+  } catch {
+    loginError.textContent = 'Error de conexión con el servidor.';
+    loginError.classList.add('visible');
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = 'Ingresar';
+  }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', logout);
 
 // === KarIA avatar ===
 const KARIA_AVATAR_SVG = `<svg viewBox="0 0 28 28" width="28" height="28">
@@ -36,7 +134,7 @@ const KARIA_AVATAR_SVG = `<svg viewBox="0 0 28 28" width="28" height="28">
 
 async function loadSidebar(selectId = null) {
   try {
-    const res = await fetch('/api/sessions');
+    const res = await fetch('/api/sessions', { headers: getAuthHeaders() });
     const sessions = await res.json();
 
     if (!Array.isArray(sessions) || sessions.length === 0) {
@@ -89,7 +187,7 @@ async function selectSession(sesionId, itemEl) {
 
   // Load messages from server
   try {
-    const res = await fetch(`/api/sessions/${sesionId}/messages`);
+    const res = await fetch(`/api/sessions/${sesionId}/messages`, { headers: getAuthHeaders() });
     const messages = await res.json();
 
     console.log(`[app] Mensajes recibidos para sesión ${sesionId}:`, messages);
@@ -145,10 +243,6 @@ function showWelcome() {
     </div>`;
   messagesEl.appendChild(div);
 }
-
-// Init
-showWelcome();
-loadSidebar();
 
 resetBtn.addEventListener('click', startNewConversation);
 sidebarNewBtn.addEventListener('click', startNewConversation);
@@ -258,7 +352,7 @@ chatForm.addEventListener('submit', async (e) => {
       try {
         const sessionRes = await fetch('/api/sessions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ firstMessage: text }),
         });
         const session = await sessionRes.json();
@@ -284,11 +378,11 @@ chatForm.addEventListener('submit', async (e) => {
       formData.append('message', text);
       formData.append('history', JSON.stringify(history));
       if (currentSessionId) formData.append('sesion_id', currentSessionId);
-      res = await fetch('/api/chat', { method: 'POST', body: formData });
+      res = await fetch('/api/chat', { method: 'POST', headers: getAuthHeaders(), body: formData });
     } else {
       res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ message: text, history, sesion_id: currentSessionId }),
       });
     }

@@ -500,6 +500,35 @@ function construirMensajeUsuario(mensajeUsuario, excelContext, wordContext) {
   return mensajeUsuario;
 }
 
+// === Filtrado de herramientas por rol ===
+
+/** Herramientas disponibles para el rol "document_analyst": solo análisis de documentos. */
+const TOOLS_DOCUMENT_ANALYST = ['analyze_excel', 'export_to_word', 'export_to_excel'];
+
+/**
+ * Retorna el subconjunto de herramientas permitidas según el rol del usuario.
+ * - admin: acceso completo a todas las herramientas
+ * - document_analyst: solo herramientas de análisis y exportación de documentos
+ */
+function getToolsParaRol(rol) {
+  if (rol === 'document_analyst') {
+    return TOOLS.filter((t) => TOOLS_DOCUMENT_ANALYST.includes(t.name));
+  }
+  return TOOLS;
+}
+
+/**
+ * Retorna un system prompt ajustado al rol del usuario.
+ * Para document_analyst, restringe el contexto a análisis de documentos.
+ */
+function getSystemPromptParaRol(rol) {
+  const base = getSystemPrompt();
+  if (rol === 'document_analyst') {
+    return `${base}\n\nROL ACTIVO: document_analyst. Solo podés interactuar sobre documentos adjuntos (Excel y Word). No tenés acceso a búsqueda de precios, calendario, email, Drive ni contactos. Si el usuario pide algo fuera del análisis de documentos, explicale amablemente que tu rol está limitado al análisis de archivos.`;
+  }
+  return base;
+}
+
 // === Handler principal ===
 
 /**
@@ -512,25 +541,30 @@ function construirMensajeUsuario(mensajeUsuario, excelContext, wordContext) {
  * @param {string|null} excelContext - Contenido del Excel adjunto (o null)
  * @param {string|null} usuarioId - ID del usuario autenticado (null si no hay login)
  * @param {string|null} wordContext - Contenido del Word adjunto (o null)
+ * @param {string} userRol - Rol del usuario: "admin" | "document_analyst"
  * @returns {string} Respuesta del agente en texto
  */
-async function handleChat(userMessage, history, excelContext = null, usuarioId = null, wordContext = null) {
+async function handleChat(userMessage, history, excelContext = null, usuarioId = null, wordContext = null, userRol = 'admin') {
   // Recuperar contexto de archivos del historial si no viene como parámetro directo
   excelContext = excelContext || extraerContextoDeHistorial(history, '[EXCEL_DATA]\n');
   wordContext = wordContext || extraerContextoDeHistorial(history, '[WORD_DATA]\n');
+
+  // Determinar herramientas y system prompt según el rol del usuario
+  const toolsActivas = getToolsParaRol(userRol);
+  const systemPrompt = getSystemPromptParaRol(userRol);
 
   // Preparar mensajes: limpiar marcadores y limitar por tokens
   const messages = prepararHistorial(history);
   messages.push({ role: 'user', content: construirMensajeUsuario(userMessage, excelContext, wordContext) });
 
-  console.log(`[agent] Contexto: ${messages.length} turnos | Excel: ${!!excelContext} | Word: ${!!wordContext}`);
+  console.log(`[agent] Contexto: ${messages.length} turnos | Excel: ${!!excelContext} | Word: ${!!wordContext} | Rol: ${userRol} | Tools: ${toolsActivas.length}`);
 
   // Primera llamada a Claude
   let response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
-    system: getSystemPrompt(),
-    tools: TOOLS,
+    system: systemPrompt,
+    tools: toolsActivas,
     messages,
   });
 
@@ -565,8 +599,8 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
     response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
-      system: getSystemPrompt(),
-      tools: TOOLS,
+      system: systemPrompt,
+      tools: toolsActivas,
       messages,
     });
   }

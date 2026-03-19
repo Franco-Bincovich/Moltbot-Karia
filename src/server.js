@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const Anthropic = require('@anthropic-ai/sdk');
 const { createClient } = require('@supabase/supabase-js');
 const { handleChat } = require('./agent');
@@ -44,6 +46,61 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// === Autenticación ===
+
+/**
+ * Middleware que valida el JWT en el header Authorization.
+ * Si el token es inválido o expiró, retorna 401.
+ * Si es válido, adjunta el payload decodificado en req.user.
+ */
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // formato: "Bearer <token>"
+
+  if (!token) return res.status(401).json({ error: 'Token requerido.' });
+
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Token inválido o expirado.' });
+  }
+}
+
+/**
+ * POST /api/login — Autentica al usuario contra la tabla "usuarios" en Supabase.
+ * Valida el password con MD5 y retorna un JWT firmado con los datos del usuario.
+ */
+app.post('/api/login', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase no configurado.' });
+
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email y password requeridos.' });
+
+  // Hashear password con MD5 para comparar contra la tabla
+  const passwordHash = crypto.createHash('md5').update(password).digest('hex');
+
+  const { data: usuario, error } = await supabase
+    .from('usuarios')
+    .select('id, email, nombre, rol, password_hash')
+    .eq('email', email)
+    .single();
+
+  if (error || !usuario || usuario.password_hash !== passwordHash) {
+    return res.status(401).json({ error: 'Credenciales inválidas.' });
+  }
+
+  // Generar JWT con datos del usuario, expira en 8 horas
+  const token = jwt.sign(
+    { usuario_id: usuario.id, email: usuario.email, nombre: usuario.nombre, rol: usuario.rol },
+    process.env.JWT_SECRET,
+    { expiresIn: '8h' }
+  );
+
+  console.log(`[auth] Login exitoso: ${usuario.email} (rol: ${usuario.rol})`);
+  res.json({ token, usuario: { nombre: usuario.nombre, email: usuario.email, rol: usuario.rol } });
+});
+
 // === Sesiones ===
 
 /**
@@ -68,7 +125,7 @@ async function generateSessionName(firstMessage) {
 }
 
 /** POST /api/sessions — Crea una sesión nueva con nombre generado por IA. */
-app.post('/api/sessions', async (req, res) => {
+app.post('/api/sessions', authenticateToken, async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase no configurado.' });
 
   const { firstMessage } = req.body;
@@ -92,7 +149,7 @@ app.post('/api/sessions', async (req, res) => {
 });
 
 /** GET /api/sessions — Lista las últimas 50 sesiones ordenadas por fecha. */
-app.get('/api/sessions', async (req, res) => {
+app.get('/api/sessions', authenticateToken, async (req, res) => {
   if (!supabase) return res.json([]);
 
   const { data, error } = await supabase
@@ -110,7 +167,7 @@ app.get('/api/sessions', async (req, res) => {
 });
 
 /** GET /api/sessions/:id/messages — Carga los mensajes de una sesión, excluye rol "system". */
-app.get('/api/sessions/:id/messages', async (req, res) => {
+app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
   if (!supabase) return res.json([]);
 
   const { data, error } = await supabase
@@ -144,11 +201,11 @@ app.get('/download/:filename', (req, res) => {
 /**
  * POST /api/chat — Endpoint principal del agente.
  * Acepta mensaje de texto y/o archivo adjunto (Excel/Word).
- * Parsea el archivo, llama al agente y guarda la conversación en Supabase.
+ * Parsea el archivo, llama al agente con el rol del usuario y guarda en Supabase.
  */
-app.post('/api/chat', upload.single('file'), async (req, res) => {
+app.post('/api/chat', authenticateToken, upload.single('file'), async (req, res) => {
   const ts = new Date().toISOString();
-  console.log(`[${ts}] /api/chat recibido`);
+  const { usuario_id, rol } = req.user;
 
   const message = req.body.message || '';
   const history = req.body.history
@@ -163,7 +220,7 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'El mensaje o un archivo son requeridos.' });
   }
 
-  console.log(`[${ts}] Mensaje: "${message}" | Archivo: ${hasFile ? req.file.originalname : 'ninguno'} | Sesión: ${sesionId} | Historial: ${history.length} turnos`);
+  console.log(`[${ts}] Mensaje: "${message}" | Archivo: ${hasFile ? req.file.originalname : 'ninguno'} | Sesión: ${sesionId} | Rol: ${rol}`);
 
   let excelContext = null;
   let wordContext = null;
@@ -195,9 +252,8 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   }
 
   try {
-    console.log(`[${ts}] Llamando a handleChat...`);
-    const reply = await handleChat(message, history, excelContext, null, wordContext);
-    console.log(`[${new Date().toISOString()}] handleChat completado. Primeros 200 chars: ${String(reply).slice(0, 200)}`);
+    // Pasar usuario_id y rol al agente para tool-filtering por rol
+    const reply = await handleChat(message, history, excelContext, usuario_id, wordContext, rol);
 
     // Guardar mensajes en Supabase si hay sesión activa
     if (supabase && sesionId) {
@@ -228,4 +284,5 @@ app.listen(PORT, () => {
   console.log(`[${new Date().toISOString()}] Karia Agent corriendo en http://localhost:${PORT}`);
   console.log(`[${new Date().toISOString()}] Supabase: ${supabase ? 'OK' : 'NO CONFIGURADO'}`);
   console.log(`[${new Date().toISOString()}] ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
+  console.log(`[${new Date().toISOString()}] JWT_SECRET: ${process.env.JWT_SECRET ? 'OK' : 'NO CONFIGURADO'}`);
 });

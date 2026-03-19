@@ -11,7 +11,40 @@
 </head>
 <body>
 
-  <div class="app-shell">
+  <!-- PANTALLA DE LOGIN -->
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="login-logo">
+        <svg viewBox="0 0 80 80" width="80" height="80">
+          <circle cx="40" cy="40" r="40" fill="#fff"/>
+          <circle cx="28" cy="20" r="5" fill="#43D1C9"/>
+          <circle cx="52" cy="20" r="5" fill="#43D1C9"/>
+          <path d="M20 28 Q40 44 60 28" stroke="#43D1C9" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+          <text x="13" y="62" font-family="Baloo 2, sans-serif" font-size="26" font-weight="600" fill="#081C54">kar</text>
+          <text x="49" y="62" font-family="Baloo 2, sans-serif" font-size="26" font-weight="600" fill="#43D1C9">ia</text>
+        </svg>
+      </div>
+      <h1 class="login-title">KarIA <span>Agent</span></h1>
+      <p class="login-subtitle">Ingresá con tu cuenta para continuar</p>
+
+      <div class="login-error" id="loginError"></div>
+
+      <form class="login-form" id="loginForm">
+        <div class="login-field">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" placeholder="tu@email.com" autocomplete="email" required />
+        </div>
+        <div class="login-field">
+          <label for="loginPassword">Contraseña</label>
+          <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn-login" id="loginBtn">Ingresar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- APP PRINCIPAL (oculta hasta login) -->
+  <div class="app-shell" id="appShell" style="display:none">
 
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
@@ -67,6 +100,14 @@
             <h1><span class="header-name-white">Karia</span> <span class="header-name-accent">Agent</span></h1>
             <span class="header-subtitle">Agente inteligente · En linea</span>
           </div>
+        </div>
+        <div class="header-right">
+          <span class="header-user-name" id="headerUserName"></span>
+          <button class="btn-logout" id="logoutBtn" title="Cerrar sesión">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
         </div>
       </header>
 
