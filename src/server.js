@@ -9,6 +9,9 @@ const { createClient } = require('@supabase/supabase-js');
 const { handleChat } = require('./agent');
 const { parseExcelBuffer } = require('./tools/excel');
 const mammoth = require('mammoth');
+// Middlewares de validación y sanitización de inputs
+const { validarLogin, validarCrearSesion, validarChat } = require('./middlewares/validaciones');
+const { manejarErroresValidacion } = require('./middlewares/manejarErroresValidacion');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -71,11 +74,11 @@ function authenticateToken(req, res, next) {
  * POST /api/login — Autentica al usuario contra la tabla "usuarios" en Supabase.
  * Valida el password con MD5 y retorna un JWT firmado con los datos del usuario.
  */
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', validarLogin, manejarErroresValidacion, async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase no configurado.' });
 
+  // email ya normalizado (minúsculas, sin espacios) por express-validator
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email y password requeridos.' });
 
   // Hashear password con MD5 para comparar contra la tabla
   const passwordHash = crypto.createHash('md5').update(password).digest('hex');
@@ -125,11 +128,11 @@ async function generateSessionName(firstMessage) {
 }
 
 /** POST /api/sessions — Crea una sesión nueva con nombre generado por IA. */
-app.post('/api/sessions', authenticateToken, async (req, res) => {
+app.post('/api/sessions', authenticateToken, validarCrearSesion, manejarErroresValidacion, async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase no configurado.' });
 
+  // firstMessage ya sanitizado (trim) por express-validator
   const { firstMessage } = req.body;
-  if (!firstMessage) return res.status(400).json({ error: 'firstMessage requerido.' });
 
   const nombre = await generateSessionName(firstMessage);
   console.log(`[sessions] Creando sesión: "${nombre}"`);
@@ -216,8 +219,12 @@ app.get('/download/:filename', (req, res) => {
  * POST /api/chat — Endpoint principal del agente.
  * Acepta mensaje de texto y/o archivo adjunto (Excel/Word).
  * Parsea el archivo, llama al agente con el rol del usuario y guarda en Supabase.
+ *
+ * Orden de middlewares: multer debe ejecutarse antes de validarChat porque
+ * necesita parsear el multipart/form-data para que express-validator pueda
+ * leer los campos de texto del body.
  */
-app.post('/api/chat', authenticateToken, upload.single('file'), async (req, res) => {
+app.post('/api/chat', authenticateToken, upload.single('file'), validarChat, manejarErroresValidacion, async (req, res) => {
   const ts = new Date().toISOString();
   const { usuario_id, rol } = req.user;
 
