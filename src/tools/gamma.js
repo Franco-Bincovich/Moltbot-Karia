@@ -44,10 +44,28 @@ async function fetchConTimeout(url, options, timeoutMs) {
  */
 async function downloadToTmp(url, filename) {
   const res = await fetchConTimeout(url, {}, TIMEOUT_DESCARGA_MS);
-  if (!res.ok) throw new Error(`Error descargando PDF: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Error descargando PDF de Gamma: HTTP ${res.status}`);
+
   const buffer = Buffer.from(await res.arrayBuffer());
   const filePath = path.join('/tmp', filename);
-  fs.writeFileSync(filePath, buffer);
+
+  // Verificar que /tmp sea escribible antes de intentar guardar.
+  // Puede fallar si el disco está lleno, /tmp tiene permisos restringidos,
+  // o el container tiene filesystem read-only sin volumen montado.
+  try {
+    fs.accessSync('/tmp', fs.constants.W_OK);
+  } catch {
+    throw new Error('No se puede escribir en /tmp. Verificá permisos y espacio disponible.');
+  }
+
+  // Escribir el PDF descargado a disco.
+  // Puede fallar por disco lleno aun si /tmp existía al momento del accessSync.
+  try {
+    fs.writeFileSync(filePath, buffer);
+  } catch (err) {
+    throw new Error(`No se pudo guardar el PDF "${filename}": ${err.message}`);
+  }
+
   console.log(`[gamma] PDF descargado: ${filePath} (${buffer.length} bytes)`);
   return filePath;
 }

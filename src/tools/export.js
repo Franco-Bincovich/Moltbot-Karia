@@ -6,6 +6,41 @@ const crypto = require('crypto');
 
 const TMP_DIR = '/tmp';
 
+// === Helpers de filesystem ===
+
+/**
+ * Verifica que el directorio temporal exista y sea escribible.
+ * Puede fallar si /tmp no existe (entorno mal configurado) o si el proceso
+ * no tiene permisos de escritura (container con filesystem read-only).
+ * @throws {Error} Si /tmp no está disponible para escritura
+ */
+function verificarTmpDisponible() {
+  try {
+    fs.accessSync(TMP_DIR, fs.constants.W_OK);
+  } catch {
+    throw new Error(`No se puede escribir en ${TMP_DIR}. Verificá que el directorio exista y tenga permisos de escritura.`);
+  }
+}
+
+/**
+ * Escribe un buffer a disco con manejo de errores descriptivo.
+ * Puede fallar por: disco lleno, permisos insuficientes, path inválido,
+ * o filesystem read-only (ej: container sin volumen montado en /tmp).
+ * @param {string} filePath - Ruta completa del archivo a crear
+ * @param {Buffer} buffer - Contenido a escribir
+ * @param {string} tipo - Tipo de archivo para el mensaje de error (ej: "Word", "Excel")
+ */
+function escribirArchivo(filePath, buffer, tipo) {
+  try {
+    fs.writeFileSync(filePath, buffer);
+  } catch (err) {
+    const nombre = path.basename(filePath);
+    throw new Error(`No se pudo crear el archivo ${tipo} "${nombre}": ${err.message}`);
+  }
+}
+
+// === Generación de documentos ===
+
 /**
  * Genera un archivo Word (.docx) a partir de contenido markdown-like.
  * @param {string} content - Contenido en texto/markdown a convertir
@@ -13,6 +48,8 @@ const TMP_DIR = '/tmp';
  * @returns {string} Ruta al archivo generado
  */
 async function generateWord(content, filename) {
+  verificarTmpDisponible();
+
   const safeName = `${filename.replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomBytes(4).toString('hex')}`;
   const filePath = path.join(TMP_DIR, `${safeName}.docx`);
 
@@ -26,7 +63,7 @@ async function generateWord(content, filename) {
   });
 
   const buffer = await Packer.toBuffer(doc);
-  fs.writeFileSync(filePath, buffer);
+  escribirArchivo(filePath, buffer, 'Word');
 
   console.log(`[export] Word generado: ${filePath} (${buffer.length} bytes)`);
   return filePath;
@@ -39,6 +76,8 @@ async function generateWord(content, filename) {
  * @returns {string} Ruta al archivo generado
  */
 async function generateExcel(data, filename) {
+  verificarTmpDisponible();
+
   const safeName = `${filename.replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomBytes(4).toString('hex')}`;
   const filePath = path.join(TMP_DIR, `${safeName}.xlsx`);
 
@@ -76,7 +115,15 @@ async function generateExcel(data, filename) {
     });
   }
 
-  await workbook.xlsx.writeFile(filePath);
+  // ExcelJS escribe el archivo directamente con writeFile (async).
+  // Puede fallar por disco lleno, permisos insuficientes, o path inválido.
+  try {
+    await workbook.xlsx.writeFile(filePath);
+  } catch (err) {
+    const nombre = path.basename(filePath);
+    throw new Error(`No se pudo crear el archivo Excel "${nombre}": ${err.message}`);
+  }
+
   console.log(`[export] Excel generado: ${filePath}`);
   return filePath;
 }
