@@ -17,6 +17,8 @@ const { supabase } = require('./config/supabase');
 const { middlewareCola, obtenerEstadoCola } = require('./config/cola');
 const { parseExcelBuffer } = require('./tools/excel');
 const mammoth = require('mammoth');
+// Limpieza periódica de archivos temporales generados por el agente en /tmp
+const { limpiarArchivosTmp } = require('./utils/limpiarTmp');
 // Middlewares de validación y sanitización de inputs
 const { validarLogin, validarCrearSesion, validarChat } = require('./middlewares/validaciones');
 const { manejarErroresValidacion } = require('./middlewares/manejarErroresValidacion');
@@ -128,6 +130,17 @@ const chatLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Demasiados mensajes enviados. Esperá unos minutos antes de continuar.' },
+});
+
+// Límite para descargas de archivos: 20 descargas cada 15 minutos por IP.
+// Previene DoS por descargas masivas y enumeración de archivos en /tmp
+// (un atacante podría probar nombres de archivo para descubrir archivos de otros usuarios).
+const downloadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas descargas. Esperá unos minutos antes de continuar.' },
 });
 
 // Aplicar límite general a todos los endpoints /api/ excepto login (tiene su propio limiter)
@@ -342,7 +355,7 @@ app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
  *   Se usa path.basename() para extraer solo el nombre del archivo,
  *   descartando cualquier directorio o secuencia "../".
  */
-app.get('/download/:filename', (req, res) => {
+app.get('/download/:filename', downloadLimiter, (req, res) => {
   // Sanitizar: extraer solo el nombre del archivo, sin directorios ni "../"
   const safeName = path.basename(req.params.filename);
 
@@ -362,7 +375,18 @@ app.get('/download/:filename', (req, res) => {
     return res.status(404).json({ error: 'Archivo no encontrado.' });
   }
 
-  res.download(filePath);
+  // Servir el archivo y eliminarlo de /tmp después de que se transmita completo.
+  // El archivo ya fue descargado por el usuario, no se necesita más en el servidor.
+  // Si la eliminación falla (ej: permisos), solo logueamos — la limpieza periódica
+  // lo atrapará después.
+  res.download(filePath, () => {
+    try {
+      require('fs').unlinkSync(filePath);
+      console.log(`[download] Archivo eliminado después de descarga: ${safeName}`);
+    } catch (err) {
+      console.warn(`[download] No se pudo eliminar ${safeName} después de descarga: ${err.message}`);
+    }
+  });
 });
 
 // === Estado del servidor ===
@@ -516,6 +540,13 @@ const server = app.listen(PORT, () => {
   console.log(`[${new Date().toISOString()}] Supabase: ${supabase ? 'OK' : 'NO CONFIGURADO'}`);
   console.log(`[${new Date().toISOString()}] ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
   console.log(`[${new Date().toISOString()}] JWT_SECRET: ${process.env.JWT_SECRET ? 'OK' : 'NO CONFIGURADO'}`);
+
+  // Limpieza de archivos temporales huérfanos en /tmp.
+  // Se ejecuta al arrancar (para limpiar archivos de ejecuciones anteriores)
+  // y cada 30 minutos para evitar acumulación durante uso continuo.
+  // Solo elimina .pdf, .docx y .xlsx con más de 2 horas de antigüedad.
+  limpiarArchivosTmp();
+  setInterval(limpiarArchivosTmp, 30 * 60 * 1000);
 });
 
 // === Handlers de proceso ===
