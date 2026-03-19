@@ -3,6 +3,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Anthropic = require('@anthropic-ai/sdk');
 const { createClient } = require('@supabase/supabase-js');
@@ -80,16 +81,22 @@ app.post('/api/login', validarLogin, manejarErroresValidacion, async (req, res) 
   // email ya normalizado (minúsculas, sin espacios) por express-validator
   const { email, password } = req.body;
 
-  // Hashear password con MD5 para comparar contra la tabla
-  const passwordHash = crypto.createHash('md5').update(password).digest('hex');
-
   const { data: usuario, error } = await supabase
     .from('usuarios')
     .select('id, email, nombre, rol, password_hash')
     .eq('email', email)
     .single();
 
-  if (error || !usuario || usuario.password_hash !== passwordHash) {
+  if (error || !usuario) {
+    return res.status(401).json({ error: 'Credenciales inválidas.' });
+  }
+
+  // Comparar password con hash bcrypt almacenado.
+  // El hash en DB es bcrypt(md5(contraseña)), así que primero hasheamos
+  // el input con MD5 y luego comparamos contra el bcrypt almacenado.
+  const md5Input = crypto.createHash('md5').update(password).digest('hex');
+  const passwordValido = await bcrypt.compare(md5Input, usuario.password_hash);
+  if (!passwordValido) {
     return res.status(401).json({ error: 'Credenciales inválidas.' });
   }
 
