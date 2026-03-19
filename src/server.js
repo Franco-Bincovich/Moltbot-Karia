@@ -332,12 +332,36 @@ app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
 
 // === Descargas ===
 
-/** GET /download/:filename — Sirve archivos generados desde /tmp (Word, Excel, PDF). */
+/**
+ * GET /download/:filename — Sirve archivos generados desde /tmp (Word, Excel, PDF).
+ *
+ * Prevención de path traversal:
+ *   Sin sanitización, un atacante podría pedir /download/../../etc/passwd
+ *   y path.join('/tmp', '../../etc/passwd') resolvería a /etc/passwd,
+ *   permitiendo leer cualquier archivo del servidor.
+ *   Se usa path.basename() para extraer solo el nombre del archivo,
+ *   descartando cualquier directorio o secuencia "../".
+ */
 app.get('/download/:filename', (req, res) => {
-  const filePath = path.join('/tmp', req.params.filename);
+  // Sanitizar: extraer solo el nombre del archivo, sin directorios ni "../"
+  const safeName = path.basename(req.params.filename);
+
+  // Si el nombre sanitizado difiere del original, el request es sospechoso
+  if (safeName !== req.params.filename) {
+    return res.status(400).json({ error: 'Nombre de archivo no válido.' });
+  }
+
+  const filePath = path.join('/tmp', safeName);
+
+  // Verificación extra: confirmar que el path resuelto está dentro de /tmp
+  if (!filePath.startsWith('/tmp/')) {
+    return res.status(400).json({ error: 'Nombre de archivo no válido.' });
+  }
+
   if (!require('fs').existsSync(filePath)) {
     return res.status(404).json({ error: 'Archivo no encontrado.' });
   }
+
   res.download(filePath);
 });
 
