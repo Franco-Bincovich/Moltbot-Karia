@@ -10,23 +10,29 @@ const { searchContacts, addContact } = require('./tools/contacts');
 
 const client = new Anthropic();
 
+// === System prompt ===
+
+/**
+ * Genera el system prompt con la fecha actual de Argentina inyectada dinámicamente.
+ * Incluye reglas de comportamiento, capacidades y restricciones del agente.
+ */
 function getSystemPrompt() {
   const now = new Date();
-  const today = now.toLocaleDateString('es-AR', {
+  const hoyFormateado = now.toLocaleDateString('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
-  // Calculate tomorrow's date for explicit reference
-  const tomorrowDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const todayISO = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }); // YYYY-MM-DD
-  const tomorrowISO = tomorrowDate.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
-  return `Hoy es ${today} (${todayISO}). Mañana es ${tomorrowISO}.
+  const mananaDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const hoyISO = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+  const mananaISO = mananaDate.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+
+  return `Hoy es ${hoyFormateado} (${hoyISO}). Mañana es ${mananaISO}.
 
 REGLA CRÍTICA — FECHAS:
-- "hoy" = ${todayISO}
-- "mañana" = ${tomorrowISO}
-- Para cualquier referencia temporal ("esta semana", "el lunes", "el viernes"), calculá la fecha YYYY-MM-DD correcta a partir de hoy ${todayISO}.
-- SIEMPRE confirmá la fecha con el usuario antes de crear un evento de calendario. Ejemplo: "Perfecto, voy a crear el evento para el ${tomorrowISO} (mañana). ¿Confirmo?"
+- "hoy" = ${hoyISO}
+- "mañana" = ${mananaISO}
+- Para cualquier referencia temporal ("esta semana", "el lunes", "el viernes"), calculá la fecha YYYY-MM-DD correcta a partir de hoy ${hoyISO}.
+- SIEMPRE confirmá la fecha con el usuario antes de crear un evento de calendario. Ejemplo: "Perfecto, voy a crear el evento para el ${mananaISO} (mañana). ¿Confirmo?"
 
 Sos Moltbot KarIA, un agente inteligente desarrollado por KarIA.
 
@@ -85,6 +91,8 @@ REGLA CRÍTICA — EXPORTACIÓN DE DOCUMENTOS:
 
 Cuando necesites usar una herramienta, invocala. No simules resultados.`;
 }
+
+// === Definición de herramientas ===
 
 const TOOLS = [
   {
@@ -216,33 +224,18 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        title: {
-          type: 'string',
-          description: 'Título del evento.',
-        },
-        date: {
-          type: 'string',
-          description: 'Fecha del evento en formato YYYY-MM-DD.',
-        },
-        time: {
-          type: 'string',
-          description: 'Hora de inicio en formato HH:MM (24h). Ej: "14:30".',
-        },
-        duration: {
-          type: 'number',
-          description: 'Duración en minutos (default 60).',
-        },
-        description: {
-          type: 'string',
-          description: 'Descripción opcional del evento.',
-        },
+        title: { type: 'string', description: 'Título del evento.' },
+        date: { type: 'string', description: 'Fecha del evento en formato YYYY-MM-DD.' },
+        time: { type: 'string', description: 'Hora de inicio en formato HH:MM (24h). Ej: "14:30".' },
+        duration: { type: 'number', description: 'Duración en minutos (default 60).' },
+        description: { type: 'string', description: 'Descripción opcional del evento.' },
         attendees: {
           type: 'string',
-          description: 'Emails de invitados separados por coma. Ej: "hernan@gmail.com, ana@empresa.com". Si el usuario menciona a alguien con su email, agregalo acá.',
+          description: 'Emails de invitados separados por coma. Ej: "hernan@gmail.com, ana@empresa.com".',
         },
         withMeet: {
           type: 'boolean',
-          description: 'Si true, crea un link de Google Meet para el evento. Usá true cuando el usuario pida "con Meet", "con videollamada", "con link de reunión", etc.',
+          description: 'Si true, crea un link de Google Meet. Usá true cuando el usuario pida "con Meet", "con videollamada", etc.',
         },
       },
       required: ['title', 'date', 'time'],
@@ -265,18 +258,14 @@ const TOOLS = [
   },
   {
     name: 'get_emails',
-    description:
-      'Obtiene los últimos emails no leídos de la cuenta moltbotkaria@gmail.com.',
+    description: 'Obtiene los últimos emails no leídos de la cuenta moltbotkaria@gmail.com.',
     input_schema: {
       type: 'object',
       properties: {
-        limit: {
-          type: 'number',
-          description: 'Cantidad máxima de emails a traer (default 10).',
-        },
+        limit: { type: 'number', description: 'Cantidad máxima de emails a traer (default 10).' },
         query: {
           type: 'string',
-          description: 'Término de búsqueda opcional para filtrar emails (compatible con operadores de Gmail como from:, subject:, etc.).',
+          description: 'Término de búsqueda opcional (compatible con operadores de Gmail como from:, subject:, etc.).',
         },
       },
       required: [],
@@ -289,21 +278,12 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        to: {
-          type: 'string',
-          description: 'Dirección de email del destinatario.',
-        },
-        subject: {
-          type: 'string',
-          description: 'Asunto del email.',
-        },
-        body: {
-          type: 'string',
-          description: 'Cuerpo del email en texto plano.',
-        },
+        to: { type: 'string', description: 'Dirección de email del destinatario.' },
+        subject: { type: 'string', description: 'Asunto del email.' },
+        body: { type: 'string', description: 'Cuerpo del email en texto plano.' },
         attachments: {
           type: 'string',
-          description: 'Nombres de archivos en /tmp para adjuntar, separados por coma. Ej: "presentacion_ventas_1234.pdf". Usá el nombre exacto que aparece en "[PDF guardado localmente: nombre.pdf]" o el nombre de archivos Word/Excel generados.',
+          description: 'Nombres de archivos en /tmp para adjuntar, separados por coma. Usá el nombre exacto que aparece en "[PDF guardado localmente: nombre.pdf]".',
         },
       },
       required: ['to', 'subject', 'body'],
@@ -311,8 +291,7 @@ const TOOLS = [
   },
   {
     name: 'search_drive',
-    description:
-      'Busca y lista archivos en el Google Drive de moltbotkaria@gmail.com.',
+    description: 'Busca y lista archivos en el Google Drive de moltbotkaria@gmail.com.',
     input_schema: {
       type: 'object',
       properties: {
@@ -326,19 +305,12 @@ const TOOLS = [
   },
   {
     name: 'save_to_drive',
-    description:
-      'Guarda un archivo de texto en el Google Drive de moltbotkaria@gmail.com.',
+    description: 'Guarda un archivo de texto en el Google Drive de moltbotkaria@gmail.com.',
     input_schema: {
       type: 'object',
       properties: {
-        name: {
-          type: 'string',
-          description: 'Nombre del archivo con extensión. Ej: "informe.txt", "datos.csv".',
-        },
-        content: {
-          type: 'string',
-          description: 'Contenido del archivo.',
-        },
+        name: { type: 'string', description: 'Nombre del archivo con extensión. Ej: "informe.txt".' },
+        content: { type: 'string', description: 'Contenido del archivo.' },
         mimeType: {
           type: 'string',
           description: 'Tipo MIME del archivo. Default: "text/plain". Otros: "text/csv", "application/json".',
@@ -369,71 +341,191 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        nombre: {
-          type: 'string',
-          description: 'Nombre completo del contacto.',
-        },
-        email: {
-          type: 'string',
-          description: 'Email del contacto.',
-        },
+        nombre: { type: 'string', description: 'Nombre completo del contacto.' },
+        email: { type: 'string', description: 'Email del contacto.' },
       },
       required: ['nombre', 'email'],
     },
   },
 ];
 
-async function handleChat(userMessage, history, excelContext = null, usuarioId = null, wordContext = null) {
-  // Si no hay excelContext directo, buscarlo en el historial
-  if (!excelContext) {
-    for (let i = history.length - 1; i >= 0; i--) {
-      const m = history[i];
-      if (m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[EXCEL_DATA]\n')) {
-        excelContext = m.content.slice('[EXCEL_DATA]\n'.length);
-        break;
+// === Ejecución de herramientas ===
+
+/**
+ * Ejecuta una herramienta por nombre y retorna el resultado como string.
+ * Centraliza toda la lógica de dispatch para mantener handleChat limpio.
+ * @param {object} block - Tool use block de Claude (con name, input, id)
+ * @param {string|null} excelContext - Datos del Excel en el contexto actual
+ * @param {string|null} usuarioId - ID del usuario (null si no hay autenticación)
+ */
+async function executeTool(block, excelContext, usuarioId) {
+  const { name, input } = block;
+
+  switch (name) {
+    case 'search_competitors': {
+      const MAX_CHARS = 2000;
+      let resultado = await searchCompetitors(input.query);
+      if (resultado.length > MAX_CHARS) {
+        resultado = resultado.slice(0, MAX_CHARS) + '\n\n[Resultados truncados por límite de tamaño]';
       }
+      return resultado;
+    }
+
+    case 'generate_presentation':
+      return await generatePresentation(input.topic, input.details);
+
+    case 'analyze_excel':
+      if (!excelContext) return 'No hay ningún archivo Excel adjunto en esta conversación.';
+      return await analyzeExcel(excelContext, input.question, input.analysisType, input.personFilter || null);
+
+    case 'export_to_word': {
+      const filePath = await generateWord(input.content, input.filename);
+      return `Archivo Word generado. Link de descarga: /download/${require('path').basename(filePath)}`;
+    }
+
+    case 'export_to_excel': {
+      const filePath = await generateExcelFile(
+        { headers: input.headers, rows: input.rows, sheetName: input.sheetName || 'Datos' },
+        input.filename
+      );
+      return `Archivo Excel generado. Link de descarga: /download/${require('path').basename(filePath)}`;
+    }
+
+    case 'get_calendar_events':
+      return input.days === 0 ? await getTodayEvents() : await getEvents(input.days || 7);
+
+    case 'create_calendar_event': {
+      const invitados = input.attendees
+        ? input.attendees.split(',').map((e) => e.trim()).filter(Boolean)
+        : [];
+      return await createEvent(
+        input.title, input.date, input.time,
+        input.duration || 60, input.description || '',
+        invitados, input.withMeet || false
+      );
+    }
+
+    case 'delete_calendar_event':
+      return await deleteEvent(input.eventId);
+
+    case 'get_emails':
+      return input.query
+        ? await searchEmails(input.query)
+        : await getUnreadEmails(input.limit || 10);
+
+    case 'send_email': {
+      const adjuntos = input.attachments
+        ? input.attachments.split(',').map((f) => f.trim()).filter(Boolean)
+        : [];
+      return await sendEmail(input.to, input.subject, input.body, adjuntos);
+    }
+
+    case 'search_drive':
+      return await listFiles(input.query || '');
+
+    case 'save_to_drive':
+      return await uploadFile(input.name, input.content, input.mimeType || 'text/plain');
+
+    case 'search_contacts':
+      return JSON.stringify(await searchContacts(input.query, usuarioId));
+
+    case 'add_contact':
+      return JSON.stringify(await addContact(input.nombre, input.email, usuarioId));
+
+    default:
+      console.warn(`[agent] Herramienta desconocida: ${name}`);
+      return `Herramienta desconocida: ${name}`;
+  }
+}
+
+// === Helpers de historial y contexto ===
+
+/**
+ * Busca en el historial el contenido de un archivo adjunto (Excel o Word).
+ * Los archivos se almacenan como mensajes del asistente con prefijos especiales.
+ * @param {Array} history - Historial de mensajes
+ * @param {string} prefix - Prefijo a buscar: '[EXCEL_DATA]\n' o '[WORD_DATA]\n'
+ * @returns {string|null} Contenido del archivo, o null si no está en el historial
+ */
+function extraerContextoDeHistorial(history, prefix) {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.startsWith(prefix)) {
+      return msg.content.slice(prefix.length);
     }
   }
+  return null;
+}
 
-  // Si no hay wordContext directo, buscarlo en el historial
-  if (!wordContext) {
-    for (let i = history.length - 1; i >= 0; i--) {
-      const m = history[i];
-      if (m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[WORD_DATA]\n')) {
-        wordContext = m.content.slice('[WORD_DATA]\n'.length);
-        break;
-      }
-    }
-  }
+/**
+ * Prepara el historial de mensajes para enviar a Claude:
+ * - Elimina los marcadores de archivos ([EXCEL_DATA], [WORD_DATA])
+ * - Limita a los últimos 6 mensajes para evitar superar el rate limit de tokens
+ * - Garantiza que el primer mensaje del array sea siempre del usuario
+ */
+function prepararHistorial(history) {
+  const MAX_MENSAJES = 6;
 
-  // Filtrar los mensajes de datos de archivos del historial y limitar a los últimos 6 mensajes
-  // para evitar superar el rate limit de tokens (429)
-  const MAX_HISTORY_MESSAGES = 6;
-  const filtered = history
-    .filter((m) => !(m.role === 'assistant' && typeof m.content === 'string' && (m.content.startsWith('[EXCEL_DATA]\n') || m.content.startsWith('[WORD_DATA]\n'))));
-  const trimmed = filtered.slice(-MAX_HISTORY_MESSAGES);
-  // Ensure first message is from 'user' (Claude API requires alternating roles starting with user)
-  const firstUserIdx = trimmed.findIndex((m) => m.role === 'user');
-  const messages = (firstUserIdx > 0 ? trimmed.slice(firstUserIdx) : trimmed)
-    .map((m) => ({ role: m.role, content: m.content }));
+  const sinMarcadores = history.filter(
+    (m) => !(
+      m.role === 'assistant' &&
+      typeof m.content === 'string' &&
+      (m.content.startsWith('[EXCEL_DATA]\n') || m.content.startsWith('[WORD_DATA]\n'))
+    )
+  );
 
-  // Si hay archivo adjunto, inyectar su contenido en el mensaje del usuario
-  let fullMessage;
-  const userText = userMessage.trim() || '(El usuario subió el archivo sin agregar un mensaje)';
+  const recientes = sinMarcadores.slice(-MAX_MENSAJES);
+  const primerUsuarioIdx = recientes.findIndex((m) => m.role === 'user');
+  const normalizado = primerUsuarioIdx > 0 ? recientes.slice(primerUsuarioIdx) : recientes;
+
+  return normalizado.map((m) => ({ role: m.role, content: m.content }));
+}
+
+/**
+ * Construye el mensaje del usuario inyectando el contenido de archivos adjuntos.
+ * Si hay Excel y/o Word adjuntos, los incluye antes del mensaje del usuario.
+ */
+function construirMensajeUsuario(mensajeUsuario, excelContext, wordContext) {
+  const textoUsuario = mensajeUsuario.trim() || '(El usuario subió el archivo sin agregar un mensaje)';
+
   if (excelContext && wordContext) {
-    fullMessage = `El usuario adjuntó un archivo Excel con los siguientes datos:\n\n${excelContext}\n\nTambién adjuntó un archivo Word con el siguiente contenido:\n\n${wordContext}\n\n---\n\nMensaje del usuario: ${userText}`;
-  } else if (excelContext) {
-    fullMessage = `El usuario adjuntó un archivo Excel con los siguientes datos:\n\n${excelContext}\n\n---\n\nMensaje del usuario: ${userText}`;
-  } else if (wordContext) {
-    fullMessage = `El usuario adjuntó un archivo Word con el siguiente contenido:\n\n${wordContext}\n\n---\n\nMensaje del usuario: ${userText}`;
-  } else {
-    fullMessage = userMessage;
+    return `El usuario adjuntó un archivo Excel con los siguientes datos:\n\n${excelContext}\n\nTambién adjuntó un archivo Word con el siguiente contenido:\n\n${wordContext}\n\n---\n\nMensaje del usuario: ${textoUsuario}`;
   }
+  if (excelContext) {
+    return `El usuario adjuntó un archivo Excel con los siguientes datos:\n\n${excelContext}\n\n---\n\nMensaje del usuario: ${textoUsuario}`;
+  }
+  if (wordContext) {
+    return `El usuario adjuntó un archivo Word con el siguiente contenido:\n\n${wordContext}\n\n---\n\nMensaje del usuario: ${textoUsuario}`;
+  }
+  return mensajeUsuario;
+}
 
-  messages.push({ role: 'user', content: fullMessage });
+// === Handler principal ===
 
-  console.log(`[agent] Enviando a Claude. Turnos en contexto: ${messages.length} | Excel: ${!!excelContext} | Word: ${!!wordContext}`);
+/**
+ * Procesa un mensaje del usuario y retorna la respuesta del agente.
+ * Maneja el loop de tool-use: Claude puede invocar múltiples herramientas
+ * antes de generar la respuesta final.
+ *
+ * @param {string} userMessage - Mensaje del usuario
+ * @param {Array} history - Historial de la conversación [{role, content}]
+ * @param {string|null} excelContext - Contenido del Excel adjunto (o null)
+ * @param {string|null} usuarioId - ID del usuario autenticado (null si no hay login)
+ * @param {string|null} wordContext - Contenido del Word adjunto (o null)
+ * @returns {string} Respuesta del agente en texto
+ */
+async function handleChat(userMessage, history, excelContext = null, usuarioId = null, wordContext = null) {
+  // Recuperar contexto de archivos del historial si no viene como parámetro directo
+  excelContext = excelContext || extraerContextoDeHistorial(history, '[EXCEL_DATA]\n');
+  wordContext = wordContext || extraerContextoDeHistorial(history, '[WORD_DATA]\n');
 
+  // Preparar mensajes: limpiar marcadores y limitar por tokens
+  const messages = prepararHistorial(history);
+  messages.push({ role: 'user', content: construirMensajeUsuario(userMessage, excelContext, wordContext) });
+
+  console.log(`[agent] Contexto: ${messages.length} turnos | Excel: ${!!excelContext} | Word: ${!!wordContext}`);
+
+  // Primera llamada a Claude
   let response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
@@ -442,124 +534,34 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
     messages,
   });
 
-  console.log(`[agent] Claude respondió. stop_reason: ${response.stop_reason}`);
-
-  // Tool-use loop
+  // Loop de tool-use: continuar mientras Claude quiera ejecutar herramientas
   while (response.stop_reason === 'tool_use') {
-    const assistantContent = response.content;
-    messages.push({ role: 'assistant', content: assistantContent });
+    messages.push({ role: 'assistant', content: response.content });
 
-    const toolResults = [];
-
-    for (const block of assistantContent) {
+    // Ejecutar todas las herramientas solicitadas en este turno
+    const resultadosTools = [];
+    for (const block of response.content) {
       if (block.type !== 'tool_use') continue;
 
-      console.log(`[agent] Tool invocada: ${block.name} | Input: ${JSON.stringify(block.input)}`);
-
-      let result;
+      console.log(`[agent] Ejecutando herramienta: ${block.name}`);
+      let resultado;
       try {
-        if (block.name === 'search_competitors') {
-          let rawResult = await searchCompetitors(block.input.query);
-          // Truncar resultados de búsqueda a 2000 chars para evitar rate limit 429
-          const MAX_SEARCH_CHARS = 2000;
-          if (rawResult.length > MAX_SEARCH_CHARS) {
-            rawResult = rawResult.slice(0, MAX_SEARCH_CHARS) + '\n\n[Resultados truncados por límite de tamaño]';
-          }
-          result = rawResult;
-          console.log(`[agent] search_competitors completado. Resultado (${result.length} chars, primeros 300): ${String(result).slice(0, 300)}`);
-        } else if (block.name === 'generate_presentation') {
-          result = await generatePresentation(block.input.topic, block.input.details);
-          console.log(`[agent] generate_presentation completado.`);
-        } else if (block.name === 'analyze_excel') {
-          if (!excelContext) {
-            result = 'No hay ningún archivo Excel adjunto en esta conversación.';
-          } else {
-            result = await analyzeExcel(excelContext, block.input.question, block.input.analysisType, block.input.personFilter || null);
-            console.log(`[agent] analyze_excel completado. Resultado (primeros 300 chars): ${String(result).slice(0, 300)}`);
-          }
-        } else if (block.name === 'export_to_word') {
-          const filePath = await generateWord(block.input.content, block.input.filename);
-          const fileName = require('path').basename(filePath);
-          result = `Archivo Word generado. Link de descarga: /download/${fileName}`;
-          console.log(`[agent] export_to_word completado: ${filePath}`);
-        } else if (block.name === 'export_to_excel') {
-          const data = {
-            headers: block.input.headers,
-            rows: block.input.rows,
-            sheetName: block.input.sheetName || 'Datos',
-          };
-          const filePath = await generateExcelFile(data, block.input.filename);
-          const fileName = require('path').basename(filePath);
-          result = `Archivo Excel generado. Link de descarga: /download/${fileName}`;
-          console.log(`[agent] export_to_excel completado: ${filePath}`);
-        } else if (block.name === 'get_calendar_events') {
-          const days = block.input.days;
-          result = days === 0 ? await getTodayEvents() : await getEvents(days || 7);
-          console.log(`[agent] get_calendar_events completado.`);
-        } else if (block.name === 'create_calendar_event') {
-          const attendeesList = block.input.attendees
-            ? block.input.attendees.split(',').map((e) => e.trim()).filter(Boolean)
-            : [];
-          result = await createEvent(
-            block.input.title,
-            block.input.date,
-            block.input.time,
-            block.input.duration || 60,
-            block.input.description || '',
-            attendeesList,
-            block.input.withMeet || false
-          );
-          console.log(`[agent] create_calendar_event completado.`);
-        } else if (block.name === 'delete_calendar_event') {
-          result = await deleteEvent(block.input.eventId);
-          console.log(`[agent] delete_calendar_event completado.`);
-        } else if (block.name === 'get_emails') {
-          if (block.input.query) {
-            result = await searchEmails(block.input.query);
-          } else {
-            result = await getUnreadEmails(block.input.limit || 10);
-          }
-          console.log(`[agent] get_emails completado.`);
-        } else if (block.name === 'send_email') {
-          const attachmentList = block.input.attachments
-            ? block.input.attachments.split(',').map((f) => f.trim()).filter(Boolean)
-            : [];
-          result = await sendEmail(block.input.to, block.input.subject, block.input.body, attachmentList);
-          console.log(`[agent] send_email completado. Adjuntos: ${attachmentList.length}`);
-        } else if (block.name === 'search_drive') {
-          result = await listFiles(block.input.query || '');
-          console.log(`[agent] search_drive completado.`);
-        } else if (block.name === 'save_to_drive') {
-          result = await uploadFile(block.input.name, block.input.content, block.input.mimeType || 'text/plain');
-          console.log(`[agent] save_to_drive completado.`);
-        } else if (block.name === 'search_contacts') {
-          const contactResult = await searchContacts(block.input.query, usuarioId);
-          result = JSON.stringify(contactResult);
-          console.log(`[agent] search_contacts completado: ${result}`);
-        } else if (block.name === 'add_contact') {
-          const addResult = await addContact(block.input.nombre, block.input.email, usuarioId);
-          result = JSON.stringify(addResult);
-          console.log(`[agent] add_contact completado: ${result}`);
-        } else {
-          result = `Herramienta desconocida: ${block.name}`;
-          console.warn(`[agent] Tool desconocida: ${block.name}`);
-        }
+        resultado = await executeTool(block, excelContext, usuarioId);
       } catch (err) {
-        console.error(`[agent] Error ejecutando ${block.name}:`, err.message);
-        console.error(err.stack);
-        result = `Error al ejecutar ${block.name}: ${err.message}`;
+        console.error(`[agent] Error en ${block.name}:`, err.message);
+        resultado = `Error al ejecutar ${block.name}: ${err.message}`;
       }
 
-      toolResults.push({
+      resultadosTools.push({
         type: 'tool_result',
         tool_use_id: block.id,
-        content: String(result ?? 'Sin respuesta de la herramienta.'),
+        content: String(resultado ?? 'Sin respuesta de la herramienta.'),
       });
     }
 
-    messages.push({ role: 'user', content: toolResults });
+    messages.push({ role: 'user', content: resultadosTools });
 
-    console.log(`[agent] Enviando resultados de tools a Claude...`);
+    // Nueva llamada a Claude con los resultados de las herramientas
     response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
@@ -567,12 +569,13 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
       tools: TOOLS,
       messages,
     });
-    console.log(`[agent] Claude respondió. stop_reason: ${response.stop_reason}`);
   }
 
-  // Extraer texto de la respuesta final
-  const textBlocks = response.content.filter((b) => b.type === 'text');
-  return textBlocks.map((b) => b.text).join('\n');
+  // Extraer y retornar el texto de la respuesta final
+  return response.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n');
 }
 
 module.exports = { handleChat };

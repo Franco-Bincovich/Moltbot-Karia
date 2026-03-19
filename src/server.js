@@ -13,11 +13,10 @@ const PORT = process.env.PORT || 3000;
 
 const anthropic = new Anthropic();
 
+// Cliente de Supabase con service key para bypasear RLS en operaciones del servidor
 const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY)
   ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
   : null;
-
-console.log('[server] SUPABASE_SERVICE_KEY (primeros 20 chars):', process.env.SUPABASE_SERVICE_KEY?.slice(0, 20) ?? 'NO CONFIGURADA');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -45,9 +44,12 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// === Sessions ===
+// === Sesiones ===
 
-// Generate a 2-4 word session name using Claude
+/**
+ * Genera un nombre de 2-4 palabras en español para una sesión,
+ * basado en el primer mensaje del usuario. Usa Claude Haiku por velocidad.
+ */
 async function generateSessionName(firstMessage) {
   try {
     const response = await anthropic.messages.create({
@@ -65,7 +67,7 @@ async function generateSessionName(firstMessage) {
   }
 }
 
-// Create a new session
+/** POST /api/sessions — Crea una sesión nueva con nombre generado por IA. */
 app.post('/api/sessions', async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase no configurado.' });
 
@@ -89,7 +91,7 @@ app.post('/api/sessions', async (req, res) => {
   res.json(data);
 });
 
-// List sessions (most recent first)
+/** GET /api/sessions — Lista las últimas 50 sesiones ordenadas por fecha. */
 app.get('/api/sessions', async (req, res) => {
   if (!supabase) return res.json([]);
 
@@ -107,7 +109,7 @@ app.get('/api/sessions', async (req, res) => {
   res.json(data || []);
 });
 
-// Load messages for a session
+/** GET /api/sessions/:id/messages — Carga los mensajes de una sesión, excluye rol "system". */
 app.get('/api/sessions/:id/messages', async (req, res) => {
   if (!supabase) return res.json([]);
 
@@ -123,11 +125,12 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  console.log(`[sessions] Mensajes encontrados para sesión ${req.params.id}: ${(data || []).length}`);
   res.json(data || []);
 });
 
-// === Downloads ===
+// === Descargas ===
+
+/** GET /download/:filename — Sirve archivos generados desde /tmp (Word, Excel, PDF). */
 app.get('/download/:filename', (req, res) => {
   const filePath = path.join('/tmp', req.params.filename);
   if (!require('fs').existsSync(filePath)) {
@@ -137,6 +140,12 @@ app.get('/download/:filename', (req, res) => {
 });
 
 // === Chat ===
+
+/**
+ * POST /api/chat — Endpoint principal del agente.
+ * Acepta mensaje de texto y/o archivo adjunto (Excel/Word).
+ * Parsea el archivo, llama al agente y guarda la conversación en Supabase.
+ */
 app.post('/api/chat', upload.single('file'), async (req, res) => {
   const ts = new Date().toISOString();
   console.log(`[${ts}] /api/chat recibido`);
@@ -190,26 +199,17 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     const reply = await handleChat(message, history, excelContext, null, wordContext);
     console.log(`[${new Date().toISOString()}] handleChat completado. Primeros 200 chars: ${String(reply).slice(0, 200)}`);
 
-    // Save messages to Supabase if sesion_id provided
+    // Guardar mensajes en Supabase si hay sesión activa
     if (supabase && sesionId) {
       const now = new Date().toISOString();
       const userContent = message || (hasFile ? `[Archivo: ${req.file.originalname}]` : '');
-      console.log(`[db] Insertando — sesion_id: ${sesionId} | rol: user | contenido: "${userContent.slice(0, 50)}"`);
-      console.log(`[db] Insertando — sesion_id: ${sesionId} | rol: assistant | contenido: "${reply.slice(0, 50)}"`);
       const { error: insertError } = await supabase.from('conversaciones').insert([
         { sesion_id: sesionId, rol: 'user', contenido: userContent, created_at: now },
         { sesion_id: sesionId, rol: 'assistant', contenido: reply, created_at: now },
       ]);
       if (insertError) {
-        console.error('[db] Error insertando conversación — código:', insertError.code);
-        console.error('[db] Error insertando conversación — mensaje:', insertError.message);
-        console.error('[db] Error insertando conversación — detalle:', insertError.details);
-        console.error('[db] Error insertando conversación — hint:', insertError.hint);
-      } else {
-        console.log(`[db] Inserción exitosa para sesión ${sesionId}`);
+        console.error(`[db] Error guardando conversación en sesión ${sesionId}:`, insertError.message);
       }
-    } else {
-      console.log(`[db] Sin inserción — supabase: ${!!supabase} | sesionId: ${sesionId}`);
     }
 
     const result = { reply };

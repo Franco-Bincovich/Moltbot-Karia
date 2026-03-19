@@ -5,17 +5,23 @@ const path = require('path');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
+/** Crea y retorna el cliente de Gmail autenticado. */
 function getGmail() {
   const auth = getAuthClient();
   if (!auth) return null;
   return google.gmail({ version: 'v1', auth });
 }
 
+// === Helpers ===
+
 /**
- * Extrae adjuntos del payload de un email (recorre parts recursivamente).
+ * Extrae adjuntos del payload de un email recorriendo parts recursivamente.
+ * @param {object} payload - Payload del mensaje de Gmail
+ * @returns {Array<{filename, mimeType}>}
  */
 function getAttachments(payload) {
   const attachments = [];
+
   function walkParts(parts) {
     if (!parts) return;
     for (const part of parts) {
@@ -25,13 +31,56 @@ function getAttachments(payload) {
       if (part.parts) walkParts(part.parts);
     }
   }
-  // Check top-level payload and its parts
+
   if (payload.filename && payload.filename.length > 0) {
     attachments.push({ filename: payload.filename, mimeType: payload.mimeType || 'unknown' });
   }
   walkParts(payload.parts);
   return attachments;
 }
+
+/**
+ * Formatea un mensaje de Gmail como entrada de texto legible.
+ * Reutilizado por getUnreadEmails y searchEmails.
+ * @param {object} detail - Respuesta completa de gmail.users.messages.get
+ * @returns {string} Entrada formateada con De, Asunto, Preview, Fecha y adjuntos
+ */
+function buildEmailEntry(detail) {
+  const headers = detail.data.payload.headers;
+  const from = headers.find((h) => h.name === 'From')?.value || 'Desconocido';
+  const subject = headers.find((h) => h.name === 'Subject')?.value || '(Sin asunto)';
+  const date = headers.find((h) => h.name === 'Date')?.value || '';
+  const snippet = detail.data.snippet || '';
+  const attachments = getAttachments(detail.data.payload);
+
+  let entry = `- **De:** ${from}\n  **Asunto:** ${subject}\n  **Preview:** ${snippet}\n  **Fecha:** ${date}`;
+  if (attachments.length > 0) {
+    const attachList = attachments.map((a) => `${a.filename} (${a.mimeType})`).join(', ');
+    entry += `\n  **Adjuntos (${attachments.length}):** ${attachList}`;
+  }
+  return entry;
+}
+
+/**
+ * Obtiene los detalles completos de una lista de IDs de mensajes.
+ * @param {object} gmail - Cliente Gmail
+ * @param {Array<{id}>} messages - Lista de IDs a resolver
+ * @returns {Promise<string[]>} Entradas formateadas
+ */
+async function fetchEmailEntries(gmail, messages) {
+  const entries = [];
+  for (const msg of messages) {
+    const detail = await gmail.users.messages.get({
+      userId: 'me',
+      id: msg.id,
+      format: 'full',
+    });
+    entries.push(buildEmailEntry(detail));
+  }
+  return entries;
+}
+
+// === Funciones públicas ===
 
 /**
  * Obtiene los últimos N emails no leídos.
@@ -42,7 +91,6 @@ async function getUnreadEmails(limit = 10) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const gmail = getGmail();
-
   console.log(`[gmail] Buscando últimos ${limit} emails no leídos...`);
 
   const res = await gmail.users.messages.list({
@@ -52,52 +100,28 @@ async function getUnreadEmails(limit = 10) {
   });
 
   const messages = res.data.messages || [];
+  if (messages.length === 0) return 'No hay emails no leídos.';
 
-  if (messages.length === 0) {
-    return 'No hay emails no leídos.';
-  }
-
-  const emails = [];
-  for (const msg of messages) {
-    const detail = await gmail.users.messages.get({
-      userId: 'me',
-      id: msg.id,
-      format: 'full',
-    });
-
-    const headers = detail.data.payload.headers;
-    const from = headers.find((h) => h.name === 'From')?.value || 'Desconocido';
-    const subject = headers.find((h) => h.name === 'Subject')?.value || '(Sin asunto)';
-    const date = headers.find((h) => h.name === 'Date')?.value || '';
-    const snippet = detail.data.snippet || '';
-    const attachments = getAttachments(detail.data.payload);
-
-    let entry = `- **De:** ${from}\n  **Asunto:** ${subject}\n  **Preview:** ${snippet}\n  **Fecha:** ${date}`;
-    if (attachments.length > 0) {
-      const attachList = attachments.map((a) => `${a.filename} (${a.mimeType})`).join(', ');
-      entry += `\n  **Adjuntos (${attachments.length}):** ${attachList}`;
-    }
-    emails.push(entry);
-  }
-
-  console.log(`[gmail] ${emails.length} emails no leídos encontrados.`);
-  return `Emails no leídos (${emails.length}):\n\n${emails.join('\n\n')}`;
+  const entries = await fetchEmailEntries(gmail, messages);
+  console.log(`[gmail] ${entries.length} emails no leídos encontrados.`);
+  return `Emails no leídos (${entries.length}):\n\n${entries.join('\n\n')}`;
 }
 
 /**
  * Envía un email desde moltbotkaria@gmail.com.
+ * Soporta adjuntos en formato multipart/mixed.
  * @param {string} to - Destinatario
  * @param {string} subject - Asunto
  * @param {string} body - Cuerpo del email en texto plano
  * @param {string[]} attachmentFilenames - Nombres de archivos en /tmp para adjuntar
- * @returns {string} Confirmación
+ * @returns {string} Confirmación del envío
  */
 async function sendEmail(to, subject, body, attachmentFilenames = []) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const gmail = getGmail();
 
-  // Resolve actual attachment files from /tmp
+  // Resolver archivos adjuntos desde /tmp
   const attachments = [];
   for (const filename of attachmentFilenames) {
     const filePath = path.join('/tmp', filename);
@@ -111,67 +135,9 @@ async function sendEmail(to, subject, body, attachmentFilenames = []) {
   console.log(`[gmail] Enviando email a ${to} | Asunto: "${subject}" | Adjuntos: ${attachments.length}`);
 
   const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
-
-  let rawMessage;
-
-  if (attachments.length === 0) {
-    // Simple email without attachments
-    rawMessage = [
-      `To: ${to}`,
-      `Subject: ${encodedSubject}`,
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: base64',
-      'MIME-Version: 1.0',
-      '',
-      Buffer.from(body, 'utf-8').toString('base64'),
-    ].join('\r\n');
-  } else {
-    // Multipart email with attachments
-    const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-    const parts = [];
-
-    // Text body part
-    parts.push([
-      `--${boundary}`,
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      Buffer.from(body, 'utf-8').toString('base64'),
-    ].join('\r\n'));
-
-    // Attachment parts
-    for (const att of attachments) {
-      const fileData = fs.readFileSync(att.filePath);
-      const ext = path.extname(att.filename).toLowerCase();
-      const mimeType = ext === '.pdf' ? 'application/pdf'
-        : ext === '.docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        : ext === '.xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : 'application/octet-stream';
-
-      const encodedFilename = `=?UTF-8?B?${Buffer.from(att.filename, 'utf-8').toString('base64')}?=`;
-
-      parts.push([
-        `--${boundary}`,
-        `Content-Type: ${mimeType}; name="${encodedFilename}"`,
-        `Content-Disposition: attachment; filename="${encodedFilename}"`,
-        'Content-Transfer-Encoding: base64',
-        '',
-        fileData.toString('base64'),
-      ].join('\r\n'));
-    }
-
-    parts.push(`--${boundary}--`);
-
-    rawMessage = [
-      `To: ${to}`,
-      `Subject: ${encodedSubject}`,
-      'MIME-Version: 1.0',
-      `Content-Type: multipart/mixed; boundary="${boundary}"`,
-      '',
-      parts.join('\r\n'),
-    ].join('\r\n');
-  }
+  const rawMessage = attachments.length === 0
+    ? buildSimpleEmail(to, encodedSubject, body)
+    : buildMultipartEmail(to, encodedSubject, body, attachments);
 
   const encodedMessage = Buffer.from(rawMessage, 'utf-8')
     .toString('base64')
@@ -185,22 +151,21 @@ async function sendEmail(to, subject, body, attachmentFilenames = []) {
   });
 
   console.log(`[gmail] Email enviado: ${res.data.id}`);
-  const attachInfo = attachments.length > 0
+  const adjuntosInfo = attachments.length > 0
     ? `\nAdjuntos: ${attachments.map((a) => a.filename).join(', ')}`
     : '';
-  return `Email enviado correctamente a **${to}**.\nAsunto: ${subject}${attachInfo}`;
+  return `Email enviado correctamente a **${to}**.\nAsunto: ${subject}${adjuntosInfo}`;
 }
 
 /**
- * Busca emails por término.
- * @param {string} query - Término de búsqueda (compatible con operadores de Gmail)
+ * Busca emails por término compatible con operadores de Gmail.
+ * @param {string} query - Término de búsqueda (ej: "from:juan", "subject:factura")
  * @returns {string} Emails encontrados formateados
  */
 async function searchEmails(query) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const gmail = getGmail();
-
   console.log(`[gmail] Buscando emails: "${query}"`);
 
   const res = await gmail.users.messages.list({
@@ -210,36 +175,73 @@ async function searchEmails(query) {
   });
 
   const messages = res.data.messages || [];
+  if (messages.length === 0) return `No se encontraron emails para: "${query}"`;
 
-  if (messages.length === 0) {
-    return `No se encontraron emails para: "${query}"`;
+  const entries = await fetchEmailEntries(gmail, messages);
+  console.log(`[gmail] ${entries.length} emails encontrados.`);
+  return `Resultados para "${query}" (${entries.length}):\n\n${entries.join('\n\n')}`;
+}
+
+// === Constructores de formato MIME ===
+
+/** Construye un email simple sin adjuntos. */
+function buildSimpleEmail(to, encodedSubject, body) {
+  return [
+    `To: ${to}`,
+    `Subject: ${encodedSubject}`,
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    'MIME-Version: 1.0',
+    '',
+    Buffer.from(body, 'utf-8').toString('base64'),
+  ].join('\r\n');
+}
+
+/** Construye un email multipart con adjuntos. */
+function buildMultipartEmail(to, encodedSubject, body, attachments) {
+  const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const parts = [];
+
+  // Parte de texto
+  parts.push([
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    Buffer.from(body, 'utf-8').toString('base64'),
+  ].join('\r\n'));
+
+  // Partes de adjuntos
+  for (const att of attachments) {
+    const fileData = fs.readFileSync(att.filePath);
+    const ext = path.extname(att.filename).toLowerCase();
+    const mimeType = ext === '.pdf' ? 'application/pdf'
+      : ext === '.docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      : ext === '.xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'application/octet-stream';
+
+    const encodedFilename = `=?UTF-8?B?${Buffer.from(att.filename, 'utf-8').toString('base64')}?=`;
+
+    parts.push([
+      `--${boundary}`,
+      `Content-Type: ${mimeType}; name="${encodedFilename}"`,
+      `Content-Disposition: attachment; filename="${encodedFilename}"`,
+      'Content-Transfer-Encoding: base64',
+      '',
+      fileData.toString('base64'),
+    ].join('\r\n'));
   }
 
-  const emails = [];
-  for (const msg of messages) {
-    const detail = await gmail.users.messages.get({
-      userId: 'me',
-      id: msg.id,
-      format: 'full',
-    });
+  parts.push(`--${boundary}--`);
 
-    const headers = detail.data.payload.headers;
-    const from = headers.find((h) => h.name === 'From')?.value || 'Desconocido';
-    const subject = headers.find((h) => h.name === 'Subject')?.value || '(Sin asunto)';
-    const date = headers.find((h) => h.name === 'Date')?.value || '';
-    const snippet = detail.data.snippet || '';
-    const attachments = getAttachments(detail.data.payload);
-
-    let entry = `- **De:** ${from}\n  **Asunto:** ${subject}\n  **Preview:** ${snippet}\n  **Fecha:** ${date}`;
-    if (attachments.length > 0) {
-      const attachList = attachments.map((a) => `${a.filename} (${a.mimeType})`).join(', ');
-      entry += `\n  **Adjuntos (${attachments.length}):** ${attachList}`;
-    }
-    emails.push(entry);
-  }
-
-  console.log(`[gmail] ${emails.length} emails encontrados.`);
-  return `Resultados para "${query}" (${emails.length}):\n\n${emails.join('\n\n')}`;
+  return [
+    `To: ${to}`,
+    `Subject: ${encodedSubject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    parts.join('\r\n'),
+  ].join('\r\n');
 }
 
 module.exports = { getUnreadEmails, sendEmail, searchEmails };

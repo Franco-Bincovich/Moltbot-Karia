@@ -2,12 +2,57 @@ const { google } = require('googleapis');
 const { getAuthClient, isConfigured } = require('./auth');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
+const TZ = 'America/Argentina/Buenos_Aires';
 
+/** Crea y retorna el cliente de Google Calendar autenticado. */
 function getCalendar() {
   const auth = getAuthClient();
   if (!auth) return null;
   return google.calendar({ version: 'v3', auth });
 }
+
+// === Helpers ===
+
+/**
+ * Retorna la fecha actual en Argentina en formato YYYY-MM-DD.
+ */
+function getTodayAR() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+/**
+ * Formatea un evento de Calendar como línea de texto.
+ * @param {object} ev - Evento de Google Calendar
+ * @param {boolean} incluirFecha - Si true, incluye día y fecha además de la hora
+ * @returns {string} Línea formateada con título, fecha/hora e ID
+ */
+function formatearEvento(ev, incluirFecha) {
+  const startRaw = ev.start.dateTime || ev.start.date;
+  const startDate = new Date(startRaw);
+
+  const horaStr = ev.start.dateTime
+    ? startDate.toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false })
+    : 'Todo el día';
+
+  const descripcion = ev.description ? ` | ${ev.description}` : '';
+  const titulo = ev.summary || '(Sin título)';
+
+  if (incluirFecha) {
+    const fechaStr = startDate.toLocaleDateString('es-AR', {
+      timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short',
+    });
+    const endRaw = ev.end.dateTime || ev.end.date;
+    const horaFin = ev.end.dateTime
+      ? new Date(endRaw).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false })
+      : '';
+    const rangoHorario = horaFin ? `${horaStr} - ${horaFin}` : horaStr;
+    return `- **${titulo}** | ${fechaStr} | ${rangoHorario}${descripcion} | ID: ${ev.id}`;
+  }
+
+  return `- **${titulo}** | ${horaStr}${descripcion} | ID: ${ev.id}`;
+}
+
+// === Funciones públicas ===
 
 /**
  * Obtiene eventos de los próximos X días.
@@ -18,17 +63,12 @@ async function getEvents(days = 7) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const calendar = getCalendar();
+  const hoy = getTodayAR();
+  const fechaFin = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    .toLocaleDateString('en-CA', { timeZone: TZ });
 
-  // Get today's date in Argentina timezone (YYYY-MM-DD)
-  const now = new Date();
-  const todayAR = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }); // YYYY-MM-DD
-
-  // Build range: from start of today to end of last day, in Argentina time
-  const timeMin = `${todayAR}T00:00:00-03:00`;
-  // Calculate end date
-  const endDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-  const endAR = endDate.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
-  const timeMax = `${endAR}T23:59:59-03:00`;
+  const timeMin = `${hoy}T00:00:00-03:00`;
+  const timeMax = `${fechaFin}T23:59:59-03:00`;
 
   console.log(`[calendar] Buscando eventos de los próximos ${days} días (${timeMin} → ${timeMax})...`);
 
@@ -36,41 +76,55 @@ async function getEvents(days = 7) {
     calendarId: 'primary',
     timeMin,
     timeMax,
-    timeZone: 'America/Argentina/Buenos_Aires',
+    timeZone: TZ,
     maxResults: 50,
     singleEvents: true,
     orderBy: 'startTime',
   });
 
   const events = res.data.items || [];
+  if (events.length === 0) return `No hay eventos en los próximos ${days} días.`;
 
-  if (events.length === 0) {
-    return `No hay eventos en los próximos ${days} días.`;
-  }
+  const lineas = events.map((ev) => formatearEvento(ev, true));
+  console.log(`[calendar] ${events.length} eventos encontrados.`);
+  return `Eventos de los próximos ${days} días (${events.length}):\n\n${lineas.join('\n')}`;
+}
 
-  const TZ = 'America/Argentina/Buenos_Aires';
-  const formatted = events.map((ev) => {
-    const start = ev.start.dateTime || ev.start.date;
-    const end = ev.end.dateTime || ev.end.date;
-    const date = new Date(start);
-    const dateStr = date.toLocaleDateString('es-AR', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' });
-    const timeStr = ev.start.dateTime
-      ? date.toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false })
-      : 'Todo el día';
-    const endTime = ev.end.dateTime
-      ? new Date(end).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false })
-      : '';
-    const timeRange = endTime ? `${timeStr} - ${endTime}` : timeStr;
+/**
+ * Obtiene los eventos de hoy.
+ * @returns {string} Eventos de hoy formateados
+ */
+async function getTodayEvents() {
+  if (!isConfigured()) return NOT_CONFIGURED;
 
-    return `- **${ev.summary || '(Sin título)'}** | ${dateStr} | ${timeRange}${ev.description ? ` | ${ev.description}` : ''} | ID: ${ev.id}`;
+  const calendar = getCalendar();
+  const hoy = getTodayAR();
+  const timeMin = `${hoy}T00:00:00-03:00`;
+  const timeMax = `${hoy}T23:59:59-03:00`;
+
+  console.log(`[calendar] Buscando eventos de hoy (${hoy})...`);
+
+  const res = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin,
+    timeMax,
+    timeZone: TZ,
+    maxResults: 50,
+    singleEvents: true,
+    orderBy: 'startTime',
   });
 
-  console.log(`[calendar] ${events.length} eventos encontrados.`);
-  return `Eventos de los próximos ${days} días (${events.length}):\n\n${formatted.join('\n')}`;
+  const events = res.data.items || [];
+  if (events.length === 0) return 'No hay eventos para hoy.';
+
+  const lineas = events.map((ev) => formatearEvento(ev, false));
+  console.log(`[calendar] ${events.length} eventos hoy.`);
+  return `Eventos de hoy (${events.length}):\n\n${lineas.join('\n')}`;
 }
 
 /**
  * Crea un evento en Google Calendar.
+ * Verifica conflictos de horario antes de crear.
  * @param {string} title - Título del evento
  * @param {string} date - Fecha en formato YYYY-MM-DD
  * @param {string} time - Hora en formato HH:MM (24h)
@@ -78,77 +132,40 @@ async function getEvents(days = 7) {
  * @param {string} description - Descripción opcional
  * @param {string[]} attendees - Lista de emails de invitados
  * @param {boolean} withMeet - Si true, crea link de Google Meet
- * @returns {string} Confirmación con link al evento
+ * @returns {string} Confirmación con datos del evento creado
  */
 async function createEvent(title, date, time, duration = 60, description = '', attendees = [], withMeet = false) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const calendar = getCalendar();
-
   console.log(`[calendar] Creando evento: "${title}" | ${date} ${time} | ${duration}min | Invitados: ${attendees.length} | Meet: ${withMeet}`);
 
-  // Build local datetime strings WITHOUT timezone suffix — Google interprets them
-  // using the timeZone field, so we avoid the UTC conversion bug (was 3 hours off).
+  // Calcular hora de fin sumando duración en minutos
   const startLocal = `${date}T${time}:00`;
-  // Calculate end time by parsing hours/minutes and adding duration
   const [startH, startM] = time.split(':').map(Number);
   const totalMinutes = startH * 60 + startM + duration;
   const endH = String(Math.floor(totalMinutes / 60) % 24).padStart(2, '0');
   const endM = String(totalMinutes % 60).padStart(2, '0');
   const endLocal = `${date}T${endH}:${endM}:00`;
 
-  // Check for conflicts on that day using minute-of-day comparison
-  // to avoid timezone/Date parsing issues
-  const dayStart = `${date}T00:00:00-03:00`;
-  const dayEnd = `${date}T23:59:59-03:00`;
-  const existing = await calendar.events.list({
-    calendarId: 'primary',
-    timeMin: dayStart,
-    timeMax: dayEnd,
-    singleEvents: true,
-    orderBy: 'startTime',
-  });
-
-  // Convert HH:MM to minutes since midnight for safe comparison
-  const newStartMin = startH * 60 + startM;
-  const newEndMin = newStartMin + duration;
-
-  const conflicts = (existing.data.items || []).filter((ev) => {
-    if (!ev.start.dateTime) return false; // skip all-day events
-    // Extract HH:MM from the event's dateTime (works regardless of offset format)
-    const evStartDate = new Date(ev.start.dateTime);
-    const evEndDate = new Date(ev.end.dateTime);
-    // Get hours/minutes in Argentina timezone
-    const evStartStr = evStartDate.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
-    const evEndStr = evEndDate.toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
-    const [evSH, evSM] = evStartStr.split(':').map(Number);
-    const [evEH, evEM] = evEndStr.split(':').map(Number);
-    const evStartMin = evSH * 60 + evSM;
-    const evEndMin = evEH * 60 + evEM;
-    // Two ranges overlap if: rangeA.start < rangeB.end AND rangeA.end > rangeB.start
-    return newStartMin < evEndMin && newEndMin > evStartMin;
-  });
-
-  if (conflicts.length > 0) {
-    const conflictList = conflicts.map((ev) => {
-      const s = new Date(ev.start.dateTime).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' });
-      const e = new Date(ev.end.dateTime).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit' });
+  // Verificar conflictos en el mismo día usando minutos desde medianoche
+  // (evita problemas de conversión de timezone)
+  const conflictos = await detectarConflictos(calendar, date, startH * 60 + startM, startH * 60 + startM + duration);
+  if (conflictos.length > 0) {
+    const lista = conflictos.map((ev) => {
+      const s = new Date(ev.start.dateTime).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+      const e = new Date(ev.end.dateTime).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
       return `- **${ev.summary}** (${s} - ${e})`;
     }).join('\n');
-    return `⚠️ Hay conflicto de horario con eventos existentes:\n${conflictList}\n\nEl evento "${title}" NO fue creado. ¿Querés que lo cree de todas formas o preferís otro horario?`;
+    return `⚠️ Hay conflicto de horario con eventos existentes:\n${lista}\n\nEl evento "${title}" NO fue creado. ¿Querés que lo cree de todas formas o preferís otro horario?`;
   }
 
+  // Construir cuerpo del evento
   const eventBody = {
     summary: title,
     description: description || undefined,
-    start: {
-      dateTime: startLocal,
-      timeZone: 'America/Argentina/Buenos_Aires',
-    },
-    end: {
-      dateTime: endLocal,
-      timeZone: 'America/Argentina/Buenos_Aires',
-    },
+    start: { dateTime: startLocal, timeZone: TZ },
+    end: { dateTime: endLocal, timeZone: TZ },
   };
 
   if (attendees.length > 0) {
@@ -165,84 +182,29 @@ async function createEvent(title, date, time, duration = 60, description = '', a
     };
   }
 
-  const insertParams = {
+  const res = await calendar.events.insert({
     calendarId: 'primary',
     requestBody: eventBody,
     sendUpdates: attendees.length > 0 ? 'all' : 'none',
-  };
-
-  if (withMeet) {
-    insertParams.conferenceDataVersion = 1;
-  }
-
-  const res = await calendar.events.insert(insertParams);
-
-  const event = res.data;
-  console.log(`[calendar] Evento creado: ${event.id}`);
-
-  let response = `Evento creado: **${event.summary}**\nFecha: ${date} a las ${time}\nDuración: ${duration} minutos\nID: ${event.id}`;
-
-  if (attendees.length > 0) {
-    response += `\nInvitados: ${attendees.join(', ')}`;
-  }
-
-  const meetLink = event.hangoutLink || event.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri;
-  if (meetLink) {
-    response += `\nGoogle Meet: ${meetLink}`;
-  }
-
-  response += `\nLink: ${event.htmlLink}`;
-  return response;
-}
-
-/**
- * Obtiene los eventos de hoy.
- * @returns {string} Eventos de hoy formateados
- */
-async function getTodayEvents() {
-  if (!isConfigured()) return NOT_CONFIGURED;
-
-  const calendar = getCalendar();
-
-  // Get today's date in Argentina timezone
-  const now = new Date();
-  const todayAR = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
-  const timeMin = `${todayAR}T00:00:00-03:00`;
-  const timeMax = `${todayAR}T23:59:59-03:00`;
-
-  console.log(`[calendar] Buscando eventos de hoy (${timeMin} → ${timeMax})...`);
-
-  const res = await calendar.events.list({
-    calendarId: 'primary',
-    timeMin,
-    timeMax,
-    timeZone: 'America/Argentina/Buenos_Aires',
-    maxResults: 50,
-    singleEvents: true,
-    orderBy: 'startTime',
+    ...(withMeet && { conferenceDataVersion: 1 }),
   });
 
-  const events = res.data.items || [];
+  const evento = res.data;
+  console.log(`[calendar] Evento creado: ${evento.id}`);
 
-  if (events.length === 0) {
-    return 'No hay eventos para hoy.';
-  }
+  let respuesta = `Evento creado: **${evento.summary}**\nFecha: ${date} a las ${time}\nDuración: ${duration} minutos\nID: ${evento.id}`;
+  if (attendees.length > 0) respuesta += `\nInvitados: ${attendees.join(', ')}`;
 
-  const TZ_TODAY = 'America/Argentina/Buenos_Aires';
-  const formatted = events.map((ev) => {
-    const start = ev.start.dateTime || ev.start.date;
-    const timeStr = ev.start.dateTime
-      ? new Date(start).toLocaleTimeString('es-AR', { timeZone: TZ_TODAY, hour: '2-digit', minute: '2-digit', hour12: false })
-      : 'Todo el día';
-    return `- **${ev.summary || '(Sin título)'}** | ${timeStr}${ev.description ? ` | ${ev.description}` : ''} | ID: ${ev.id}`;
-  });
+  const meetLink = evento.hangoutLink || evento.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video')?.uri;
+  if (meetLink) respuesta += `\nGoogle Meet: ${meetLink}`;
 
-  console.log(`[calendar] ${events.length} eventos hoy.`);
-  return `Eventos de hoy (${events.length}):\n\n${formatted.join('\n')}`;
+  respuesta += `\nLink: ${evento.htmlLink}`;
+  return respuesta;
 }
 
 /**
  * Elimina un evento de Google Calendar por su ID.
+ * Primero obtiene el nombre del evento para mostrarlo en la confirmación.
  * @param {string} eventId - ID del evento a eliminar
  * @returns {string} Confirmación de eliminación
  */
@@ -250,22 +212,58 @@ async function deleteEvent(eventId) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const calendar = getCalendar();
-
   console.log(`[calendar] Eliminando evento: ${eventId}`);
 
-  // First get the event to show its name in the confirmation
-  let eventName = eventId;
+  let nombreEvento = eventId;
   try {
     const ev = await calendar.events.get({ calendarId: 'primary', eventId });
-    eventName = ev.data.summary || eventId;
-  } catch (e) {
-    // If we can't get the name, proceed with deletion anyway
+    nombreEvento = ev.data.summary || eventId;
+  } catch {
+    // Si no se puede obtener el nombre, continuar con la eliminación igual
   }
 
   await calendar.events.delete({ calendarId: 'primary', eventId });
-
   console.log(`[calendar] Evento eliminado: ${eventId}`);
-  return `Evento eliminado: **${eventName}**`;
+  return `Evento eliminado: **${nombreEvento}**`;
+}
+
+// === Helper privado ===
+
+/**
+ * Detecta eventos existentes que se superponen con el rango horario dado.
+ * Usa minutos desde medianoche para evitar problemas de timezone.
+ * @param {object} calendar - Cliente de Calendar
+ * @param {string} date - Fecha en YYYY-MM-DD
+ * @param {number} inicioMin - Minuto de inicio (desde medianoche)
+ * @param {number} finMin - Minuto de fin (desde medianoche)
+ * @returns {Promise<Array>} Eventos con conflicto
+ */
+async function detectarConflictos(calendar, date, inicioMin, finMin) {
+  const existing = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin: `${date}T00:00:00-03:00`,
+    timeMax: `${date}T23:59:59-03:00`,
+    singleEvents: true,
+    orderBy: 'startTime',
+  });
+
+  return (existing.data.items || []).filter((ev) => {
+    if (!ev.start.dateTime) return false; // ignorar eventos de día completo
+
+    const evStartStr = new Date(ev.start.dateTime).toLocaleTimeString('es-AR', {
+      timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    const evEndStr = new Date(ev.end.dateTime).toLocaleTimeString('es-AR', {
+      timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    const [evSH, evSM] = evStartStr.split(':').map(Number);
+    const [evEH, evEM] = evEndStr.split(':').map(Number);
+    const evInicioMin = evSH * 60 + evSM;
+    const evFinMin = evEH * 60 + evEM;
+
+    // Dos rangos se superponen si: A.inicio < B.fin && A.fin > B.inicio
+    return inicioMin < evFinMin && finMin > evInicioMin;
+  });
 }
 
 module.exports = { getEvents, createEvent, getTodayEvents, deleteEvent };
