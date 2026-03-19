@@ -533,21 +533,13 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
           result = await uploadFile(block.input.name, block.input.content, block.input.mimeType || 'text/plain');
           console.log(`[agent] save_to_drive completado.`);
         } else if (block.name === 'search_contacts') {
-          if (!usuarioId) {
-            result = 'No hay sesión de usuario activa. El usuario debe iniciar sesión.';
-          } else {
-            const contactResult = await searchContacts(block.input.query, usuarioId);
-            result = JSON.stringify(contactResult);
-            console.log(`[agent] search_contacts completado: ${result}`);
-          }
+          const contactResult = await searchContacts(block.input.query, usuarioId);
+          result = JSON.stringify(contactResult);
+          console.log(`[agent] search_contacts completado: ${result}`);
         } else if (block.name === 'add_contact') {
-          if (!usuarioId) {
-            result = 'No hay sesión de usuario activa. El usuario debe iniciar sesión.';
-          } else {
-            const addResult = await addContact(block.input.nombre, block.input.email, usuarioId);
-            result = JSON.stringify(addResult);
-            console.log(`[agent] add_contact completado: ${result}`);
-          }
+          const addResult = await addContact(block.input.nombre, block.input.email, usuarioId);
+          result = JSON.stringify(addResult);
+          console.log(`[agent] add_contact completado: ${result}`);
         } else {
           result = `Herramienta desconocida: ${block.name}`;
           console.warn(`[agent] Tool desconocida: ${block.name}`);
