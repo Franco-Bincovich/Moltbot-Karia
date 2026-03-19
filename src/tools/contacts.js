@@ -15,31 +15,40 @@ async function searchContacts(query, usuario_id) {
   const supabase = getSupabase();
   if (!supabase) return { found: false, error: 'Supabase no configurado.' };
 
-  console.log(`[contacts] Buscando contacto: "${query}" para usuario ${usuario_id}`);
+  console.log(`[contacts] Buscando contacto: "${query}" para usuario ${usuario_id ?? 'todos'}`);
 
-  // Get lists belonging to this user
-  const { data: listas, error: listError } = await supabase
-    .from('listas_contactos')
-    .select('id')
-    .eq('usuario_id', usuario_id);
+  let listaIds = null;
 
-  if (listError) {
-    console.error('[contacts] Error buscando listas:', listError.message);
-    return { found: false, error: listError.message };
+  if (usuario_id != null) {
+    // Get lists belonging to this user
+    const { data: listas, error: listError } = await supabase
+      .from('listas_contactos')
+      .select('id')
+      .eq('usuario_id', usuario_id);
+
+    if (listError) {
+      console.error('[contacts] Error buscando listas:', listError.message);
+      return { found: false, error: listError.message };
+    }
+
+    if (!listas || listas.length === 0) {
+      return { found: false };
+    }
+
+    listaIds = listas.map((l) => l.id);
   }
 
-  if (!listas || listas.length === 0) {
-    return { found: false };
-  }
-
-  const listaIds = listas.map((l) => l.id);
-
-  // Search contacts by name in those lists
-  const { data: contactos, error: contactError } = await supabase
+  // Search contacts by name — filtered by lista_id if usuario_id was provided
+  let query_builder = supabase
     .from('contactos')
     .select('nombre, email')
-    .in('lista_id', listaIds)
     .ilike('nombre', `%${query}%`);
+
+  if (listaIds) {
+    query_builder = query_builder.in('lista_id', listaIds);
+  }
+
+  const { data: contactos, error: contactError } = await query_builder;
 
   if (contactError) {
     console.error('[contacts] Error buscando contactos:', contactError.message);
@@ -71,18 +80,19 @@ async function addContact(nombre, email, usuario_id) {
   const supabase = getSupabase();
   if (!supabase) return { success: false, error: 'Supabase no configurado.' };
 
-  console.log(`[contacts] Agregando contacto: ${nombre} <${email}> para usuario ${usuario_id}`);
+  console.log(`[contacts] Agregando contacto: ${nombre} <${email}> para usuario ${usuario_id ?? 'todos'}`);
 
-  // Get first list of this user
-  const { data: listas, error: listError } = await supabase
-    .from('listas_contactos')
-    .select('id')
-    .eq('usuario_id', usuario_id)
-    .limit(1);
+  // Get first list — filtered by usuario_id if provided, otherwise any list
+  let listas_query = supabase.from('listas_contactos').select('id').limit(1);
+  if (usuario_id != null) {
+    listas_query = listas_query.eq('usuario_id', usuario_id);
+  }
+
+  const { data: listas, error: listError } = await listas_query;
 
   if (listError || !listas || listas.length === 0) {
-    console.error('[contacts] No se encontró lista para el usuario:', listError?.message);
-    return { success: false, error: 'No se encontró una lista de contactos para este usuario.' };
+    console.error('[contacts] No se encontró lista:', listError?.message);
+    return { success: false, error: 'No se encontró una lista de contactos disponible.' };
   }
 
   const listaId = listas[0].id;
