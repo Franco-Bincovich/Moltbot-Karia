@@ -16,6 +16,7 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const { logInfo, logWarn, logError } = require('../utils/logger');
 
 // === Validación de variables de entorno ===
 
@@ -23,8 +24,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  console.warn('[supabase] ⚠️  SUPABASE_URL o SUPABASE_SERVICE_KEY no configuradas en .env');
-  console.warn('[supabase] Las funciones que dependen de Supabase (login, sesiones, conversaciones) no estarán disponibles.');
+  logWarn('supabase', 'SUPABASE_URL o SUPABASE_SERVICE_KEY no configuradas en .env');
+  logWarn('supabase', 'Las funciones que dependen de Supabase (login, sesiones, conversaciones) no estarán disponibles.');
 }
 
 // === Creación del cliente singleton ===
@@ -67,12 +68,12 @@ async function verificarConexion() {
   try {
     const { error } = await supabase.from('usuarios').select('id').limit(1);
     if (error) {
-      console.error(`[supabase] ❌ Error de conexión: ${error.message}`);
+      logError('supabase', `Error de conexión: ${error.message}`);
     } else {
-      console.log('[supabase] ✅ Conexión verificada correctamente');
+      logInfo('supabase', 'Conexión verificada correctamente');
     }
   } catch (err) {
-    console.error(`[supabase] ❌ No se pudo conectar: ${err.message}`);
+    logError('supabase', `No se pudo conectar: ${err.message}`);
   }
 }
 

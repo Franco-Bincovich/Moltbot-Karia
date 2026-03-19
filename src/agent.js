@@ -8,6 +8,7 @@ const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gma
 // getFile no se usa actualmente — solo listFiles y uploadFile tienen tool asociada
 const { listFiles, uploadFile } = require('./tools/google/drive');
 const { buscarContactosGmail } = require('./tools/google/contactos_gmail');
+const { logInfo, logWarn, logError } = require('./utils/logger');
 
 const client = new Anthropic();
 
@@ -501,7 +502,7 @@ async function executeTool(block, excelContext, usuarioId) {
     // add_contact: pendiente de implementación vía Gmail People API
 
     default:
-      console.warn(`[agent] Herramienta desconocida: ${name}`);
+      logWarn('agent', `Herramienta desconocida: ${name}`);
       return `Herramienta desconocida: ${name}`;
   }
 }
@@ -641,7 +642,7 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
   const messages = prepararHistorial(history);
   messages.push({ role: 'user', content: construirMensajeUsuario(userMessage, excelContext, wordContext) });
 
-  console.log(`[agent] Contexto: ${messages.length} turnos | Excel: ${!!excelContext} | Word: ${!!wordContext} | Rol: ${userRol} | Tools: ${toolsActivas.length}`);
+  logInfo('agent', `Contexto: ${messages.length} turnos | Excel: ${!!excelContext} | Word: ${!!wordContext} | Rol: ${userRol} | Tools: ${toolsActivas.length}`);
 
   // Primera llamada a Claude (timeout 60s)
   let response;
@@ -669,12 +670,12 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
     for (const block of response.content) {
       if (block.type !== 'tool_use') continue;
 
-      console.log(`[agent] Ejecutando herramienta: ${block.name}`);
+      logInfo('agent', `Ejecutando herramienta: ${block.name}`);
       let resultado;
       try {
         resultado = await executeTool(block, excelContext, usuarioId);
       } catch (err) {
-        console.error(`[agent] Error en ${block.name}:`, err.message);
+        logError('agent', `Error en ${block.name}: ${err.message}`);
         resultado = `Error al ejecutar ${block.name}: ${err.message}`;
       }
 

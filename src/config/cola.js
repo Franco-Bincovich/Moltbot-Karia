@@ -18,6 +18,8 @@
  * No usa dependencias externas — implementado con arrays y Promises nativas.
  */
 
+const { logInfo } = require('../utils/logger');
+
 // === Configuración ===
 
 /** Máximo de requests procesándose al mismo tiempo */
@@ -152,7 +154,7 @@ function logEstado(evento) {
   const ahora = Date.now();
   if (ahora - ultimoLog < LOG_INTERVALO_MS) return;
   ultimoLog = ahora;
-  console.log(`[cola] ${evento} | Activos: ${activos}/${MAX_CONCURRENTES} | En cola: ${cola.length}/${MAX_EN_COLA} | Procesados: ${totalProcesados} | Rechazados: ${totalRechazados}`);
+  logInfo('cola', `${evento} | Activos: ${activos}/${MAX_CONCURRENTES} | En cola: ${cola.length}/${MAX_EN_COLA} | Procesados: ${totalProcesados} | Rechazados: ${totalRechazados}`);
 }
 
 // === API pública ===

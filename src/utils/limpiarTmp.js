@@ -15,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logInfo, logWarn } = require('./logger');
 
 // === Configuración ===
 
@@ -51,7 +52,7 @@ function limpiarArchivosTmp() {
   try {
     archivos = fs.readdirSync(TMP_DIR);
   } catch (err) {
-    console.warn(`[cleanup] No se pudo leer ${TMP_DIR}: ${err.message}`);
+    logWarn('cleanup', `No se pudo leer ${TMP_DIR}: ${err.message}`);
     return { eliminados, bytesLiberados };
   }
 
@@ -81,14 +82,14 @@ function limpiarArchivosTmp() {
     } catch (err) {
       // Error individual (ej: archivo eliminado entre readdir y stat, o sin permisos).
       // Loguear y continuar con el siguiente — no interrumpir la limpieza.
-      console.warn(`[cleanup] No se pudo eliminar ${nombre}: ${err.message}`);
+      logWarn('cleanup', `No se pudo eliminar ${nombre}: ${err.message}`);
     }
   }
 
   // Loguear resultado solo si se eliminó algo (evita spam en logs)
   if (eliminados > 0) {
     const mbLiberados = (bytesLiberados / (1024 * 1024)).toFixed(1);
-    console.log(`[cleanup] ${eliminados} archivo(s) eliminado(s), ${mbLiberados} MB liberados`);
+    logInfo('cleanup', `${eliminados} archivo(s) eliminado(s), ${mbLiberados} MB liberados`);
   }
 
   return { eliminados, bytesLiberados };

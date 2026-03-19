@@ -19,6 +19,8 @@ const { parseExcelBuffer } = require('./tools/excel');
 const mammoth = require('mammoth');
 // Limpieza periódica de archivos temporales generados por el agente en /tmp
 const { limpiarArchivosTmp } = require('./utils/limpiarTmp');
+// Logger centralizado con formato estandarizado [timestamp] [NIVEL] [módulo] mensaje
+const { logInfo, logWarn, logError, logFatal } = require('./utils/logger');
 // Middlewares de validación y sanitización de inputs
 const { validarLogin, validarCrearSesion, validarChat } = require('./middlewares/validaciones');
 const { manejarErroresValidacion } = require('./middlewares/manejarErroresValidacion');
@@ -40,7 +42,7 @@ const anthropic = new Anthropic();
  * @throws {Error} Error descriptivo con el nombre de la operación
  */
 function handleSupabaseError(error, operacion) {
-  console.error(`[supabase] Error en ${operacion}: ${error.message} (código: ${error.code || 'N/A'})`);
+  logError('supabase', `Error en ${operacion}: ${error.message} (código: ${error.code || 'N/A'})`);
   throw new Error(`Error al ${operacion}. Intentá de nuevo.`);
 }
 
@@ -96,7 +98,7 @@ const upload = multer({
 app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  logInfo('http', `${req.method} ${req.url}`);
   next();
 });
 
@@ -214,10 +216,10 @@ app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, asy
       { expiresIn: '8h' }
     );
 
-    console.log(`[auth] Login exitoso: ${usuario.email} (rol: ${usuario.rol})`);
+    logInfo('auth', `Login exitoso: ${usuario.email} (rol: ${usuario.rol})`);
     res.json({ token, usuario: { nombre: usuario.nombre, email: usuario.email, rol: usuario.rol } });
   } catch (err) {
-    console.error('[auth] Error en login:', err.message);
+    logError('auth', `Error en login: ${err.message}`);
     res.status(500).json({ error: 'Error al iniciar sesión. Intentá de nuevo.' });
   }
 });
@@ -240,7 +242,7 @@ async function generateSessionName(firstMessage) {
     });
     return response.content[0]?.text?.trim() || firstMessage.slice(0, 30);
   } catch (err) {
-    console.error('[sessions] Error generando nombre:', err.message);
+    logError('sessions', `Error generando nombre: ${err.message}`);
     return firstMessage.slice(0, 30);
   }
 }
@@ -260,7 +262,7 @@ app.post('/api/sessions', authenticateToken, validarCrearSesion, manejarErroresV
 
   try {
     const nombre = await generateSessionName(firstMessage);
-    console.log(`[sessions] Creando sesión: "${nombre}"`);
+    logInfo('sessions', `Creando sesión: "${nombre}"`);
 
     const { data, error } = await supabase
       .from('sesiones')
@@ -272,7 +274,7 @@ app.post('/api/sessions', authenticateToken, validarCrearSesion, manejarErroresV
 
     res.json(data);
   } catch (err) {
-    console.error('[sessions] Error creando sesión:', err.message);
+    logError('sessions', `Error creando sesión: ${err.message}`);
     res.status(500).json({ error: 'No se pudo crear la sesión. Intentá de nuevo.' });
   }
 });
@@ -297,7 +299,7 @@ app.get('/api/sessions', authenticateToken, async (req, res) => {
 
     res.json(data || []);
   } catch (err) {
-    console.error('[sessions] Error listando sesiones:', err.message);
+    logError('sessions', `Error listando sesiones: ${err.message}`);
     res.status(500).json({ error: 'No se pudieron cargar las sesiones.' });
   }
 });
@@ -338,7 +340,7 @@ app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
 
     res.json(data || []);
   } catch (err) {
-    console.error('[sessions] Error cargando mensajes:', err.message);
+    logError('sessions', `Error cargando mensajes: ${err.message}`);
     res.status(500).json({ error: 'No se pudieron cargar los mensajes de esta sesión.' });
   }
 });
@@ -382,9 +384,9 @@ app.get('/download/:filename', downloadLimiter, (req, res) => {
   res.download(filePath, () => {
     try {
       require('fs').unlinkSync(filePath);
-      console.log(`[download] Archivo eliminado después de descarga: ${safeName}`);
+      logInfo('download', `Archivo eliminado después de descarga: ${safeName}`);
     } catch (err) {
-      console.warn(`[download] No se pudo eliminar ${safeName} después de descarga: ${err.message}`);
+      logWarn('download', `No se pudo eliminar ${safeName} después de descarga: ${err.message}`);
     }
   });
 });
@@ -472,7 +474,7 @@ app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), val
     return res.status(400).json({ error: 'El mensaje o un archivo son requeridos.' });
   }
 
-  console.log(`[${ts}] Mensaje: "${message}" | Archivo: ${hasFile ? req.file.originalname : 'ninguno'} | Sesión: ${sesionId} | Rol: ${rol}`);
+  logInfo('chat', `Mensaje: "${message}" | Archivo: ${hasFile ? req.file.originalname : 'ninguno'} | Sesión: ${sesionId} | Rol: ${rol}`);
 
   let excelContext = null;
   let wordContext = null;
@@ -483,21 +485,21 @@ app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), val
 
     if (isExcel) {
       try {
-        console.log(`[${ts}] Parseando Excel: ${req.file.originalname} (${req.file.size} bytes)`);
+        logInfo('chat', `Parseando Excel: ${req.file.originalname} (${req.file.size} bytes)`);
         excelContext = parseExcelBuffer(req.file.buffer);
-        console.log(`[${ts}] Excel parseado: ${excelContext.length} caracteres`);
+        logInfo('chat', `Excel parseado: ${excelContext.length} caracteres`);
       } catch (err) {
-        console.error(`[${ts}] Error al parsear Excel:`, err.message);
+        logError('chat', `Error al parsear Excel: ${err.message}`);
         return res.status(400).json({ error: `No se pudo leer el archivo Excel: ${err.message}` });
       }
     } else if (isWord) {
       try {
-        console.log(`[${ts}] Parseando Word: ${req.file.originalname} (${req.file.size} bytes)`);
+        logInfo('chat', `Parseando Word: ${req.file.originalname} (${req.file.size} bytes)`);
         const result = await mammoth.extractRawText({ buffer: req.file.buffer });
         wordContext = result.value;
-        console.log(`[${ts}] Word parseado: ${wordContext.length} caracteres`);
+        logInfo('chat', `Word parseado: ${wordContext.length} caracteres`);
       } catch (err) {
-        console.error(`[${ts}] Error al parsear Word:`, err.message);
+        logError('chat', `Error al parsear Word: ${err.message}`);
         return res.status(400).json({ error: `No se pudo leer el archivo Word: ${err.message}` });
       }
     }
@@ -517,7 +519,7 @@ app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), val
       ]);
       if (insertError) {
         // No crítico: logueamos pero no interrumpimos la respuesta al usuario
-        console.error(`[supabase] Error guardando conversación en sesión ${sesionId}: ${insertError.message} (código: ${insertError.code || 'N/A'})`);
+        logError('supabase', `Error guardando conversación en sesión ${sesionId}: ${insertError.message} (código: ${insertError.code || 'N/A'})`);
       }
     }
 
@@ -527,8 +529,8 @@ app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), val
 
     res.json(result);
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] Error en /api/chat:`, err.message);
-    console.error(err.stack);
+    logError('chat', `Error en /api/chat: ${err.message}`);
+    logError('chat', err.stack);
     res.status(500).json({ error: 'Error interno del agente. Intentá de nuevo.' });
   }
 });
@@ -536,10 +538,10 @@ app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), val
 // === Inicio del servidor ===
 
 const server = app.listen(PORT, () => {
-  console.log(`[${new Date().toISOString()}] Karia Agent corriendo en http://localhost:${PORT}`);
-  console.log(`[${new Date().toISOString()}] Supabase: ${supabase ? 'OK' : 'NO CONFIGURADO'}`);
-  console.log(`[${new Date().toISOString()}] ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
-  console.log(`[${new Date().toISOString()}] JWT_SECRET: ${process.env.JWT_SECRET ? 'OK' : 'NO CONFIGURADO'}`);
+  logInfo('server', `Karia Agent corriendo en http://localhost:${PORT}`);
+  logInfo('server', `Supabase: ${supabase ? 'OK' : 'NO CONFIGURADO'}`);
+  logInfo('server', `ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
+  logInfo('server', `JWT_SECRET: ${process.env.JWT_SECRET ? 'OK' : 'NO CONFIGURADO'}`);
 
   // Limpieza de archivos temporales huérfanos en /tmp.
   // Se ejecuta al arrancar (para limpiar archivos de ejecuciones anteriores)
@@ -563,9 +565,8 @@ const server = app.listen(PORT, () => {
  * se pierde. No matamos el proceso porque el servidor puede seguir funcionando —
  * solo logueamos para investigar después.
  */
-process.on('unhandledRejection', (reason, promise) => {
-  console.error(`[${new Date().toISOString()}] [error] Promesa rechazada sin capturar:`);
-  console.error(reason);
+process.on('unhandledRejection', (reason) => {
+  logError('process', `Promesa rechazada sin capturar: ${reason}`);
 });
 
 /**
@@ -577,8 +578,8 @@ process.on('unhandledRejection', (reason, promise) => {
  * lo reinicie limpio.
  */
 process.on('uncaughtException', (err) => {
-  console.error(`[${new Date().toISOString()}] [fatal] Error no capturado — el servidor se va a reiniciar:`);
-  console.error(err);
+  logFatal('process', `Error no capturado — el servidor se va a reiniciar: ${err.message}`);
+  logFatal('process', err.stack);
   process.exit(1);
 });
 
@@ -588,9 +589,9 @@ process.on('uncaughtException', (err) => {
  * conexiones nuevas y esperamos a que las existentes terminen antes de salir.
  */
 process.on('SIGTERM', () => {
-  console.log(`[${new Date().toISOString()}] [info] SIGTERM recibido — cerrando servidor...`);
+  logInfo('process', 'SIGTERM recibido — cerrando servidor...');
   server.close(() => {
-    console.log(`[${new Date().toISOString()}] [info] Servidor cerrado correctamente.`);
+    logInfo('process', 'Servidor cerrado correctamente.');
     process.exit(0);
   });
 });
@@ -600,9 +601,9 @@ process.on('SIGTERM', () => {
  * Mismo comportamiento que SIGTERM: cierre ordenado.
  */
 process.on('SIGINT', () => {
-  console.log(`[${new Date().toISOString()}] [info] SIGINT recibido (Ctrl+C) — cerrando servidor...`);
+  logInfo('process', 'SIGINT recibido (Ctrl+C) — cerrando servidor...');
   server.close(() => {
-    console.log(`[${new Date().toISOString()}] [info] Servidor cerrado correctamente.`);
+    logInfo('process', 'Servidor cerrado correctamente.');
     process.exit(0);
   });
 });
