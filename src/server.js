@@ -10,8 +10,9 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Anthropic = require('@anthropic-ai/sdk');
-const { createClient } = require('@supabase/supabase-js');
 const { handleChat } = require('./agent');
+// Cliente Supabase singleton — configuración centralizada en src/config/supabase.js
+const { supabase } = require('./config/supabase');
 const { parseExcelBuffer } = require('./tools/excel');
 const mammoth = require('mammoth');
 // Middlewares de validación y sanitización de inputs
@@ -24,11 +25,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const anthropic = new Anthropic();
-
-// Cliente de Supabase con service key para bypasear RLS en operaciones del servidor
-const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY)
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
-  : null;
 
 // === Helpers ===
 
