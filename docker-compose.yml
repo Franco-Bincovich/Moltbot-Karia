@@ -7,4 +7,7 @@ services:
       - "${PORT:-3000}:3000"
     env_file:
       - .env
+    # Reiniciar el container automáticamente si se cae o si Docker detecta unhealthy.
+    # Se usa "unless-stopped" en vez de "always" para que un `docker stop` manual
+    # no dispare un reinicio automático — solo reinicia ante crashes o health check fallido.
     restart: unless-stopped
