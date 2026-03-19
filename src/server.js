@@ -136,7 +136,7 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
 
   const { data, error } = await supabase
     .from('sesiones')
-    .insert({ nombre, iniciada_at: new Date().toISOString() })
+    .insert({ nombre, usuario_id: req.user.usuario_id, iniciada_at: new Date().toISOString() })
     .select('id, nombre')
     .single();
 
@@ -148,13 +148,14 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
   res.json(data);
 });
 
-/** GET /api/sessions — Lista las últimas 50 sesiones ordenadas por fecha. */
+/** GET /api/sessions — Lista las últimas 50 sesiones del usuario autenticado. */
 app.get('/api/sessions', authenticateToken, async (req, res) => {
   if (!supabase) return res.json([]);
 
   const { data, error } = await supabase
     .from('sesiones')
     .select('id, nombre, iniciada_at')
+    .eq('usuario_id', req.user.usuario_id)
     .order('iniciada_at', { ascending: false })
     .limit(50);
 
@@ -166,9 +167,22 @@ app.get('/api/sessions', authenticateToken, async (req, res) => {
   res.json(data || []);
 });
 
-/** GET /api/sessions/:id/messages — Carga los mensajes de una sesión, excluye rol "system". */
+/** GET /api/sessions/:id/messages — Carga los mensajes de una sesión, excluye rol "system".
+ *  Valida que la sesión pertenezca al usuario autenticado antes de devolver los mensajes. */
 app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
   if (!supabase) return res.json([]);
+
+  // Verificar que la sesión pertenece al usuario del JWT
+  const { data: sesion, error: sesionError } = await supabase
+    .from('sesiones')
+    .select('id')
+    .eq('id', req.params.id)
+    .eq('usuario_id', req.user.usuario_id)
+    .single();
+
+  if (sesionError || !sesion) {
+    return res.status(403).json({ error: 'Acceso denegado a esta sesión.' });
+  }
 
   const { data, error } = await supabase
     .from('conversaciones')
