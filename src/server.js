@@ -497,9 +497,67 @@ app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), val
 
 // === Inicio del servidor ===
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[${new Date().toISOString()}] Karia Agent corriendo en http://localhost:${PORT}`);
   console.log(`[${new Date().toISOString()}] Supabase: ${supabase ? 'OK' : 'NO CONFIGURADO'}`);
   console.log(`[${new Date().toISOString()}] ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
   console.log(`[${new Date().toISOString()}] JWT_SECRET: ${process.env.JWT_SECRET ? 'OK' : 'NO CONFIGURADO'}`);
+});
+
+// === Handlers de proceso ===
+//
+// Estos handlers capturan errores y señales a nivel de proceso para evitar
+// que el servidor muera silenciosamente sin dejar rastro de qué pasó.
+// Sin ellos, un error async no capturado mata el proceso sin log,
+// y un SIGTERM de Docker lo corta sin cerrar conexiones.
+
+/**
+ * Promesas rechazadas sin .catch().
+ * Ejemplo: una función async que falla dentro de un setTimeout o un event listener
+ * donde no hay try-catch. Sin este handler, Node.js loguea un warning pero el error
+ * se pierde. No matamos el proceso porque el servidor puede seguir funcionando —
+ * solo logueamos para investigar después.
+ */
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`[${new Date().toISOString()}] [error] Promesa rechazada sin capturar:`);
+  console.error(reason);
+});
+
+/**
+ * Errores síncronos no capturados por ningún try-catch.
+ * Ejemplo: un TypeError en un callback de event listener o un error en código
+ * que no está dentro de una función async. Después de este error el proceso
+ * puede estar en estado inconsistente (memoria corrupta, conexiones abiertas),
+ * por eso es necesario hacer exit(1) para que el process manager (PM2, Docker)
+ * lo reinicie limpio.
+ */
+process.on('uncaughtException', (err) => {
+  console.error(`[${new Date().toISOString()}] [fatal] Error no capturado — el servidor se va a reiniciar:`);
+  console.error(err);
+  process.exit(1);
+});
+
+/**
+ * SIGTERM: señal que envía Docker (docker stop), Kubernetes, o el process manager
+ * para pedir un cierre ordenado. Cerramos el servidor HTTP para que deje de aceptar
+ * conexiones nuevas y esperamos a que las existentes terminen antes de salir.
+ */
+process.on('SIGTERM', () => {
+  console.log(`[${new Date().toISOString()}] [info] SIGTERM recibido — cerrando servidor...`);
+  server.close(() => {
+    console.log(`[${new Date().toISOString()}] [info] Servidor cerrado correctamente.`);
+    process.exit(0);
+  });
+});
+
+/**
+ * SIGINT: señal que envía Ctrl+C en la terminal durante desarrollo.
+ * Mismo comportamiento que SIGTERM: cierre ordenado.
+ */
+process.on('SIGINT', () => {
+  console.log(`[${new Date().toISOString()}] [info] SIGINT recibido (Ctrl+C) — cerrando servidor...`);
+  server.close(() => {
+    console.log(`[${new Date().toISOString()}] [info] Servidor cerrado correctamente.`);
+    process.exit(0);
+  });
 });
