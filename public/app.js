@@ -11,6 +11,10 @@ const fileRemoveBtn = document.getElementById('fileRemoveBtn');
 const resetBtn = document.getElementById('resetBtn');
 const sidebarList = document.getElementById('sidebarList');
 const sidebarNewBtn = document.getElementById('sidebarNewBtn');
+const learningScreen = document.getElementById('learningScreen');
+const learningBackBtn = document.getElementById('learningBackBtn');
+const learningTitleBtn = document.getElementById('learningTitleBtn');
+const learningNewBtn = document.getElementById('learningNewBtn');
 
 // === State ===
 const history = [];
@@ -68,6 +72,7 @@ async function loadSidebar(selectId = null) {
 }
 
 async function selectSession(sesionId, itemEl) {
+  hideLearningScreen();
   // Update active state in sidebar
   if (activeSidebarItem) activeSidebarItem.classList.remove('active');
   itemEl.classList.add('active');
@@ -111,6 +116,7 @@ async function selectSession(sesionId, itemEl) {
 
 // === New conversation ===
 function startNewConversation() {
+  hideLearningScreen();
   currentSessionId = null;
   history.length = 0;
   pendingFile = null;
@@ -146,6 +152,27 @@ loadSidebar();
 
 resetBtn.addEventListener('click', startNewConversation);
 sidebarNewBtn.addEventListener('click', startNewConversation);
+
+// === Learning screen ===
+function showLearningScreen() {
+  learningScreen.classList.add('active');
+  document.getElementById('messages').style.display = 'none';
+  document.querySelector('.chat-input-area').style.display = 'none';
+  document.querySelector('.chat-header').style.display = 'none';
+  if (activeSidebarItem) activeSidebarItem.classList.remove('active');
+  activeSidebarItem = null;
+}
+
+function hideLearningScreen() {
+  learningScreen.classList.remove('active');
+  document.getElementById('messages').style.display = '';
+  document.querySelector('.chat-input-area').style.display = '';
+  document.querySelector('.chat-header').style.display = '';
+}
+
+learningTitleBtn.addEventListener('click', showLearningScreen);
+learningNewBtn.addEventListener('click', showLearningScreen);
+learningBackBtn.addEventListener('click', hideLearningScreen);
 
 // === Drag & drop ===
 const dropOverlay = document.getElementById('dropOverlay');
