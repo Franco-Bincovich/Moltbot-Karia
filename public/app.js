@@ -180,6 +180,7 @@ function initChat() {
 
       const currentSession = JSON.parse(sessionStorage.getItem('karia_session') || 'null');
       const usuarioId = currentSession?.usuario_id || null;
+      const sesionId = currentSession?.sesion_id || null;
 
       if (pendingFile) {
         const formData = new FormData();
@@ -187,6 +188,7 @@ function initChat() {
         formData.append('message', text);
         formData.append('history', JSON.stringify(history));
         if (usuarioId) formData.append('usuario_id', usuarioId);
+        if (sesionId) formData.append('sesion_id', sesionId);
 
         res = await fetch('/api/chat', {
           method: 'POST',
@@ -196,7 +198,7 @@ function initChat() {
         res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history, usuario_id: usuarioId }),
+          body: JSON.stringify({ message: text, history, usuario_id: usuarioId, sesion_id: sesionId }),
         });
       }
 

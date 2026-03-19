@@ -130,6 +130,9 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   const usuarioId = req.body.usuario_id
     ? (typeof req.body.usuario_id === 'string' ? parseInt(req.body.usuario_id, 10) : req.body.usuario_id)
     : null;
+  const sesionId = req.body.sesion_id
+    ? (typeof req.body.sesion_id === 'string' ? parseInt(req.body.sesion_id, 10) : req.body.sesion_id)
+    : null;
 
   const hasFile = !!req.file;
   const hasMessage = message.trim().length > 0;
@@ -158,6 +161,21 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     console.log(`[${new Date().toISOString()}] handleChat completado. Respuesta (primeros 200 chars): ${String(reply).slice(0, 200)}`);
     const result = { reply };
     if (excelContext) result.excelContext = excelContext;
+
+    // Save conversation to Supabase
+    if (supabase && usuarioId && sesionId) {
+      const now = new Date().toISOString();
+      const userContent = message || (hasFile ? `[Excel adjunto: ${req.file.originalname}]` : '');
+      try {
+        await supabase.from('conversaciones').insert([
+          { sesion_id: sesionId, usuario_id: usuarioId, rol: 'user', contenido: userContent, created_at: now },
+          { sesion_id: sesionId, usuario_id: usuarioId, rol: 'assistant', contenido: reply, created_at: now },
+        ]);
+      } catch (dbErr) {
+        console.error('[db] Error guardando conversación:', dbErr.message);
+      }
+    }
+
     res.json(result);
   } catch (err) {
     console.error(`[${new Date().toISOString()}] Error en /api/chat:`, err.message);
