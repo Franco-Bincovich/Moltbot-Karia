@@ -1,3 +1,13 @@
+/**
+ * @deprecated — En desuso temporalmente.
+ *
+ * La búsqueda de contactos (searchContacts) ya no es invocada por el agente.
+ * Los contactos se obtienen exclusivamente desde Google People API mediante
+ * src/tools/google/contactos_gmail.js (función buscarContactosGmail).
+ *
+ * addContact sigue activo y es usado por el agente para guardar contactos nuevos en Supabase.
+ */
+
 const { createClient } = require('@supabase/supabase-js');
 
 /**
