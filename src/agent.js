@@ -6,7 +6,7 @@ const { generateWord, generateExcel: generateExcelFile } = require('./tools/expo
 const { getEvents, createEvent, getTodayEvents, deleteEvent } = require('./tools/google/calendar');
 const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gmail');
 const { listFiles, getFile, uploadFile } = require('./tools/google/drive');
-const { addContact } = require('./tools/contacts');
+// contacts.js — addContact pendiente de reimplementación vía Gmail People API
 const { buscarContactosGmail } = require('./tools/google/contactos_gmail');
 
 const client = new Anthropic();
@@ -81,8 +81,7 @@ REGLA CRÍTICA — CONTACTOS Y EMAILS:
 - SIEMPRE usá "search_contacts" antes de "send_email" cuando el usuario mencione a alguien por nombre sin dar el email explícito.
 - Si search_contacts devuelve unique:true → usá ese email directamente sin preguntar.
 - Si search_contacts devuelve unique:false → listá los contactos encontrados y preguntá a cuál quiere enviarle.
-- Si search_contacts devuelve found:false → pedí el email al usuario. Una vez que lo dé, ofrecé guardarlo con add_contact.
-- Si el usuario dice "guardá a X con mail Y" o similar → usá add_contact directamente.
+- Si search_contacts devuelve found:false → pedí el email al usuario directamente.
 
 REGLA CRÍTICA — EXPORTACIÓN DE DOCUMENTOS:
 - NUNCA generes un documento Word o Excel por tu cuenta. Solo hacelo si el usuario lo pide EXPLÍCITAMENTE con palabras como "exportar", "descargar", "generar documento", "pasame en Word", "pasame en Excel", "haceme un archivo", etc.
@@ -335,19 +334,9 @@ const TOOLS = [
       required: ['query'],
     },
   },
-  {
-    name: 'add_contact',
-    description:
-      'Agrega un contacto nuevo a la lista del usuario. Usá esta herramienta cuando el usuario pida guardar un contacto o cuando ofreciste guardarlo y el usuario aceptó.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        nombre: { type: 'string', description: 'Nombre completo del contacto.' },
-        email: { type: 'string', description: 'Email del contacto.' },
-      },
-      required: ['nombre', 'email'],
-    },
-  },
+  // TODO: add_contact — pendiente de implementación vía Gmail People API
+  // (People API actualmente no soporta creación de contactos con OAuth2 estándar;
+  //  se evaluará usar la API de Directory o Google Contacts v3 en una próxima iteración)
 ];
 
 // === Ejecución de herramientas ===
@@ -432,8 +421,7 @@ async function executeTool(block, excelContext, usuarioId) {
       // Supabase no se consulta para esta herramienta.
       return JSON.stringify(await buscarContactosGmail(input.query));
 
-    case 'add_contact':
-      return JSON.stringify(await addContact(input.nombre, input.email, usuarioId));
+    // add_contact: pendiente de implementación vía Gmail People API
 
     default:
       console.warn(`[agent] Herramienta desconocida: ${name}`);
