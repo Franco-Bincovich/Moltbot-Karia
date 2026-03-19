@@ -11,31 +11,7 @@
 </head>
 <body>
 
-  <!-- LOGIN SCREEN -->
-  <div class="login-screen" id="loginScreen">
-    <div class="login-card">
-      <div class="login-logo">
-        <svg viewBox="0 0 80 80" width="80" height="80">
-          <circle cx="40" cy="40" r="40" fill="#fff"/>
-          <circle cx="28" cy="20" r="5" fill="#43D1C9"/>
-          <circle cx="52" cy="20" r="5" fill="#43D1C9"/>
-          <path d="M20 28 Q40 44 60 28" stroke="#43D1C9" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-          <text x="14" y="60" font-family="Baloo 2, sans-serif" font-size="24" font-weight="600" fill="#081C54">kar</text>
-          <text x="50" y="60" font-family="Baloo 2, sans-serif" font-size="24" font-weight="600" fill="#43D1C9">ia</text>
-        </svg>
-      </div>
-      <h2 class="login-title"><span class="login-title-white">Karia</span> <span class="login-title-accent">Agent</span></h2>
-      <form class="login-form" id="loginForm">
-        <input type="email" id="loginEmail" placeholder="Email" autocomplete="email" required />
-        <input type="password" id="loginPassword" placeholder="Contraseña" autocomplete="current-password" required />
-        <div class="login-error" id="loginError"></div>
-        <button type="submit" class="login-btn" id="loginBtn">Iniciar sesion</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- CHAT (hidden until login) -->
-  <div class="chat-container" id="chatContainer" style="display:none">
+  <div class="chat-container" id="chatContainer">
     <header class="chat-header">
       <div class="header-left">
         <div class="header-avatar">
@@ -50,18 +26,8 @@
         </div>
         <div class="header-info">
           <h1><span class="header-name-white">Karia</span> <span class="header-name-accent">Agent</span></h1>
-          <span class="header-subtitle" id="headerSubtitle">Agente inteligente · En linea</span>
+          <span class="header-subtitle">Agente inteligente · En linea</span>
         </div>
-      </div>
-      <div class="header-right">
-        <span class="header-user-name" id="headerUserName"></span>
-        <button class="btn-logout" id="logoutBtn" title="Cerrar sesion">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-        </button>
       </div>
     </header>
 

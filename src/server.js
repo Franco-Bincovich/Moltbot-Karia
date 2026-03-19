@@ -2,16 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const crypto = require('crypto');
-const { createClient } = require('@supabase/supabase-js');
 const { handleChat } = require('./agent');
 const { parseExcelBuffer } = require('./tools/excel');
 const mammoth = require('mammoth');
-
-// Supabase client
-const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
-  : null;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -43,94 +36,6 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Login endpoint
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email y contraseña son requeridos.' });
-  }
-
-  if (!supabase) {
-    return res.status(500).json({ error: 'Supabase no configurado. Verificar SUPABASE_URL y SUPABASE_ANON_KEY en .env.' });
-  }
-
-  try {
-    const passwordHash = crypto.createHash('md5').update(password).digest('hex');
-
-    console.log(`[auth] Buscando en Supabase — email: "${email.toLowerCase().trim()}" | password_hash: "${passwordHash}"`);
-
-    const { data, error } = await supabase
-      .from('usuarios')
-      .select('id, nombre, email')
-      .eq('email', email.toLowerCase().trim())
-      .eq('password', passwordHash)
-      .single();
-
-    console.log(`[auth] Respuesta Supabase — data: ${JSON.stringify(data)} | error: ${JSON.stringify(error)}`);
-
-    if (error || !data) {
-      console.log(`[auth] Login fallido para: ${email}`);
-      return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
-    }
-
-    // Insert session record
-    const { data: sesion, error: sesionError } = await supabase
-      .from('sesiones')
-      .insert({ usuario_id: data.id, iniciada_at: new Date().toISOString() })
-      .select('id')
-      .single();
-
-    if (sesionError) {
-      console.warn('[auth] No se pudo registrar sesión:', sesionError.message);
-    }
-
-    const sesionId = sesion?.id || null;
-    console.log(`[auth] Login exitoso: ${data.nombre} (${data.email}) | Sesión: ${sesionId}`);
-    res.json({ usuario_id: data.id, nombre: data.nombre, email: data.email, sesion_id: sesionId });
-  } catch (err) {
-    console.error('[auth] Error en login:', err.message);
-    res.status(500).json({ error: 'Error interno al verificar credenciales.' });
-  }
-});
-
-// Logout endpoint
-app.post('/api/logout', async (req, res) => {
-  const { sesion_id } = req.body;
-
-  if (!sesion_id || !supabase) {
-    return res.json({ ok: true });
-  }
-
-  try {
-    await supabase
-      .from('sesiones')
-      .update({ cerrada_at: new Date().toISOString() })
-      .eq('id', sesion_id);
-
-    console.log(`[auth] Sesión cerrada: ${sesion_id}`);
-  } catch (err) {
-    console.error('[auth] Error cerrando sesión:', err.message);
-  }
-
-  res.json({ ok: true });
-});
-
-// Chat log endpoint (for system messages like reset)
-app.post('/api/chat-log', async (req, res) => {
-  const { sesion_id, usuario_id, rol, contenido } = req.body;
-  if (!supabase || !sesion_id || !usuario_id) return res.json({ ok: true });
-
-  try {
-    await supabase.from('conversaciones').insert({
-      sesion_id, usuario_id, rol, contenido, created_at: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error('[db] Error guardando chat-log:', err.message);
-  }
-  res.json({ ok: true });
-});
-
 // Endpoint de descarga de archivos exportados
 app.get('/download/:filename', (req, res) => {
   const filePath = path.join('/tmp', req.params.filename);
@@ -144,17 +49,10 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   const ts = new Date().toISOString();
   console.log(`[${ts}] /api/chat recibido`);
 
-  // Con multipart el body viene como strings; con JSON viene parseado
   const message = req.body.message || '';
   const history = req.body.history
     ? (typeof req.body.history === 'string' ? JSON.parse(req.body.history) : req.body.history)
     : [];
-  const usuarioId = req.body.usuario_id
-    ? (typeof req.body.usuario_id === 'string' ? parseInt(req.body.usuario_id, 10) : req.body.usuario_id)
-    : null;
-  const sesionId = req.body.sesion_id
-    ? (typeof req.body.sesion_id === 'string' ? parseInt(req.body.sesion_id, 10) : req.body.sesion_id)
-    : null;
 
   const hasFile = !!req.file;
   const hasMessage = message.trim().length > 0;
@@ -169,8 +67,8 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   let wordContext = null;
 
   if (hasFile) {
-    const isWord = req.file.originalname.match(/\.(docx|doc)$/i);
     const isExcel = req.file.originalname.match(/\.(xlsx|xls)$/i);
+    const isWord = req.file.originalname.match(/\.(docx|doc)$/i);
 
     if (isExcel) {
       try {
@@ -196,25 +94,12 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
 
   try {
     console.log(`[${ts}] Llamando a handleChat...`);
-    const reply = await handleChat(message, history, excelContext, usuarioId, wordContext);
+    const reply = await handleChat(message, history, excelContext, null, wordContext);
     console.log(`[${new Date().toISOString()}] handleChat completado. Respuesta (primeros 200 chars): ${String(reply).slice(0, 200)}`);
+
     const result = { reply };
     if (excelContext) result.excelContext = excelContext;
     if (wordContext) result.wordContext = wordContext;
-
-    // Save conversation to Supabase
-    if (supabase && usuarioId && sesionId) {
-      const now = new Date().toISOString();
-      const userContent = message || (hasFile ? `[Archivo adjunto: ${req.file.originalname}]` : '');
-      try {
-        await supabase.from('conversaciones').insert([
-          { sesion_id: sesionId, usuario_id: usuarioId, rol: 'user', contenido: userContent, created_at: now },
-          { sesion_id: sesionId, usuario_id: usuarioId, rol: 'assistant', contenido: reply, created_at: now },
-        ]);
-      } catch (dbErr) {
-        console.error('[db] Error guardando conversación:', dbErr.message);
-      }
-    }
 
     res.json(result);
   } catch (err) {
@@ -225,7 +110,6 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[${new Date().toISOString()}] Moltbot KarIA corriendo en http://localhost:${PORT}`);
-  console.log(`[${new Date().toISOString()}] Búsqueda web: Claude web_search (nativa)`);
+  console.log(`[${new Date().toISOString()}] Karia Agent corriendo en http://localhost:${PORT}`);
   console.log(`[${new Date().toISOString()}] ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'OK' : 'NO CONFIGURADA'}`);
 });
