@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const helmet = require('helmet');
 const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
@@ -41,6 +42,10 @@ const upload = multer({
     }
   },
 });
+
+// Headers de seguridad HTTP (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
+// CSP deshabilitado para no interferir con el frontend actual (inline scripts/styles)
+app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
