@@ -196,14 +196,22 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
     if (supabase && sesionId) {
       const now = new Date().toISOString();
       const userContent = message || (hasFile ? `[Archivo: ${req.file.originalname}]` : '');
-      try {
-        await supabase.from('conversaciones').insert([
-          { sesion_id: sesionId, rol: 'user', contenido: userContent, created_at: now },
-          { sesion_id: sesionId, rol: 'assistant', contenido: reply, created_at: now },
-        ]);
-      } catch (dbErr) {
-        console.error('[db] Error guardando conversación:', dbErr.message);
+      console.log(`[db] Insertando — sesion_id: ${sesionId} | rol: user | contenido: "${userContent.slice(0, 50)}"`);
+      console.log(`[db] Insertando — sesion_id: ${sesionId} | rol: assistant | contenido: "${reply.slice(0, 50)}"`);
+      const { error: insertError } = await supabase.from('conversaciones').insert([
+        { sesion_id: sesionId, rol: 'user', contenido: userContent, created_at: now },
+        { sesion_id: sesionId, rol: 'assistant', contenido: reply, created_at: now },
+      ]);
+      if (insertError) {
+        console.error('[db] Error insertando conversación — código:', insertError.code);
+        console.error('[db] Error insertando conversación — mensaje:', insertError.message);
+        console.error('[db] Error insertando conversación — detalle:', insertError.details);
+        console.error('[db] Error insertando conversación — hint:', insertError.hint);
+      } else {
+        console.log(`[db] Inserción exitosa para sesión ${sesionId}`);
       }
+    } else {
+      console.log(`[db] Sin inserción — supabase: ${!!supabase} | sesionId: ${sesionId}`);
     }
 
     const result = { reply };
