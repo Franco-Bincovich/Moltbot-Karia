@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { conReintentos } = require('../utils/reintentos');
 
 const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
 const BASE_URL = 'https://public-api.gamma.app/v1.0';
@@ -73,27 +74,42 @@ async function generatePresentation(topic, details) {
   // Registrar inicio para controlar el timeout global
   const inicioGlobal = Date.now();
 
-  // Paso 1: Crear la generación (timeout 30s)
+  // Paso 1: Crear la generación (timeout 30s, hasta 3 reintentos)
+  // Reintentos porque la API de Gamma puede devolver errores de red o 5xx transitorios
   console.log(`[gamma] Creando presentación: "${topic}"`);
-  const createRes = await fetchConTimeout(`${BASE_URL}/generations`, {
-    method: 'POST',
-    headers: {
-      'X-API-KEY': GAMMA_API_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      inputText,
-      textMode: 'generate',
-      format: 'presentation',
-      numCards: 10,
-      exportAs: 'pdf',
-    }),
-  }, TIMEOUT_CREACION_MS);
+  const createRes = await conReintentos(
+    async () => {
+      const res = await fetchConTimeout(`${BASE_URL}/generations`, {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': GAMMA_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inputText,
+          textMode: 'generate',
+          format: 'presentation',
+          numCards: 10,
+          exportAs: 'pdf',
+        }),
+      }, TIMEOUT_CREACION_MS);
 
-  if (!createRes.ok) {
-    const text = await createRes.text();
-    throw new Error(`Gamma API error ${createRes.status}: ${text}`);
-  }
+      if (!res.ok) {
+        const text = await res.text();
+        const err = new Error(`Gamma API error ${res.status}: ${text}`);
+        err.status = res.status;
+        throw err;
+      }
+      return res;
+    },
+    {
+      intentos: 3,
+      esperaMs: 2000,
+      onReintento: (err, intento, espera) => {
+        console.warn(`[gamma] Reintento ${intento} de creación (espera ${espera}ms): ${err.message}`);
+      },
+    }
+  );
 
   const createData = await createRes.json();
   const generationId = createData.generationId ?? createData.id;

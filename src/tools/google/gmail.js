@@ -2,6 +2,7 @@ const { google } = require('googleapis');
 const { getAuthClient, isConfigured } = require('./auth');
 const fs = require('fs');
 const path = require('path');
+const { conReintentos } = require('../../utils/reintentos');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
@@ -150,10 +151,18 @@ async function sendEmail(to, subject, body, attachmentFilenames = []) {
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 
-  const res = await gmail.users.messages.send({
-    userId: 'me',
-    requestBody: { raw: encodedMessage },
-  });
+  // Reintentos en el envío porque puede fallar por errores de red o rate limits de Gmail API.
+  // No se reintenta en errores de autenticación o datos inválidos (esos se propagan directo).
+  const res = await conReintentos(
+    () => gmail.users.messages.send({ userId: 'me', requestBody: { raw: encodedMessage } }),
+    {
+      intentos: 3,
+      esperaMs: 1000,
+      onReintento: (err, intento, espera) => {
+        console.warn(`[gmail] Reintento ${intento} de envío a ${to} (espera ${espera}ms): ${err.message}`);
+      },
+    }
+  );
 
   console.log(`[gmail] Email enviado: ${res.data.id}`);
   const adjuntosInfo = attachments.length > 0

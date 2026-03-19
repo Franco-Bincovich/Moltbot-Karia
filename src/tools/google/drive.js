@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const { Readable } = require('stream');
 const { getAuthClient, isConfigured } = require('./auth');
+const { conReintentos } = require('../../utils/reintentos');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
@@ -136,21 +137,28 @@ async function uploadFile(name, content, mimeType = 'text/plain') {
 
   console.log(`[drive] Subiendo archivo: "${name}" (${mimeType})`);
 
-  const stream = new Readable();
-  stream.push(content);
-  stream.push(null);
-
-  const res = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType,
+  // Reintentos en la subida porque puede fallar por errores de red o rate limits de Drive API.
+  // El stream se recrea en cada intento porque un Readable consumido no se puede reutilizar.
+  // No se reintenta en errores de autenticación o permisos (esos se propagan directo).
+  const res = await conReintentos(
+    () => {
+      const stream = new Readable();
+      stream.push(content);
+      stream.push(null);
+      return drive.files.create({
+        requestBody: { name, mimeType },
+        media: { mimeType, body: stream },
+        fields: 'id, name, webViewLink',
+      });
     },
-    media: {
-      mimeType,
-      body: stream,
-    },
-    fields: 'id, name, webViewLink',
-  });
+    {
+      intentos: 3,
+      esperaMs: 2000,
+      onReintento: (err, intento, espera) => {
+        console.warn(`[drive] Reintento ${intento} de subida de "${name}" (espera ${espera}ms): ${err.message}`);
+      },
+    }
+  );
 
   const file = res.data;
   console.log(`[drive] Archivo subido: ${file.id}`);

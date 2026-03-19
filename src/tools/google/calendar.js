@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const { getAuthClient, isConfigured } = require('./auth');
+const { conReintentos } = require('../../utils/reintentos');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 const TZ = 'America/Argentina/Buenos_Aires';
@@ -187,12 +188,23 @@ async function createEvent(title, date, time, duration = 60, description = '', a
     };
   }
 
-  const res = await calendar.events.insert({
-    calendarId: 'primary',
-    requestBody: eventBody,
-    sendUpdates: attendees.length > 0 ? 'all' : 'none',
-    ...(withMeet && { conferenceDataVersion: 1 }),
-  });
+  // Reintentos en la creación porque puede fallar por errores de red o rate limits de Calendar API.
+  // No se reintenta en errores de autenticación o datos inválidos (esos se propagan directo).
+  const res = await conReintentos(
+    () => calendar.events.insert({
+      calendarId: 'primary',
+      requestBody: eventBody,
+      sendUpdates: attendees.length > 0 ? 'all' : 'none',
+      ...(withMeet && { conferenceDataVersion: 1 }),
+    }),
+    {
+      intentos: 3,
+      esperaMs: 1000,
+      onReintento: (err, intento, espera) => {
+        console.warn(`[calendar] Reintento ${intento} de creación de evento "${title}" (espera ${espera}ms): ${err.message}`);
+      },
+    }
+  );
 
   const evento = res.data;
   console.log(`[calendar] Evento creado: ${evento.id}`);
