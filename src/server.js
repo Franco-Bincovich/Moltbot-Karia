@@ -112,6 +112,21 @@ app.post('/api/logout', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Chat log endpoint (for system messages like reset)
+app.post('/api/chat-log', async (req, res) => {
+  const { sesion_id, usuario_id, rol, contenido } = req.body;
+  if (!supabase || !sesion_id || !usuario_id) return res.json({ ok: true });
+
+  try {
+    await supabase.from('conversaciones').insert({
+      sesion_id, usuario_id, rol, contenido, created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[db] Error guardando chat-log:', err.message);
+  }
+  res.json({ ok: true });
+});
+
 // Endpoint de descarga de archivos exportados
 app.get('/download/:filename', (req, res) => {
   const filePath = path.join('/tmp', req.params.filename);

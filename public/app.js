@@ -107,6 +107,52 @@ function initChat() {
   fileLabel = document.getElementById('fileLabel');
   fileLabelName = fileLabel.querySelector('.file-label-name');
   fileRemoveBtn = document.getElementById('fileRemoveBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  // Reset conversation
+  resetBtn.addEventListener('click', async () => {
+    // Log reset to Supabase
+    const sess = JSON.parse(sessionStorage.getItem('karia_session') || 'null');
+    if (sess?.usuario_id && sess?.sesion_id) {
+      try {
+        await fetch('/api/chat-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sesion_id: sess.sesion_id,
+            usuario_id: sess.usuario_id,
+            rol: 'system',
+            contenido: '--- Conversación reiniciada ---',
+          }),
+        });
+      } catch (e) { /* ignore */ }
+    }
+
+    // Clear chat
+    messagesEl.innerHTML = '';
+    history.length = 0;
+    pendingFile = null;
+    fileInput.value = '';
+    fileLabel.style.display = 'none';
+    userInput.placeholder = 'Escribi tu mensaje...';
+
+    // Show reset indicator + welcome
+    const resetDiv = document.createElement('div');
+    resetDiv.className = 'chat-reset-indicator';
+    resetDiv.textContent = 'Conversacion reiniciada';
+    messagesEl.appendChild(resetDiv);
+
+    const div = document.createElement('div');
+    div.className = 'message bot welcome-message';
+    div.innerHTML = `
+      <div class="msg-avatar">${KARIA_AVATAR_SVG}</div>
+      <div class="message-bubble">
+        <div class="message-content">Hola! Soy <strong>Karia Agent</strong>, tu asistente inteligente. ¿En qué te puedo ayudar?</div>
+        <div class="message-meta"><span class="msg-time">${getTimeStr()}</span></div>
+      </div>`;
+    messagesEl.appendChild(div);
+    userInput.focus();
+  });
 
   // Welcome message
   const div = document.createElement('div');
@@ -118,6 +164,51 @@ function initChat() {
       <div class="message-meta"><span class="msg-time">${getTimeStr()}</span></div>
     </div>`;
   messagesEl.appendChild(div);
+
+  // Drag & drop
+  const dropOverlay = document.getElementById('dropOverlay');
+  const chatContainerEl = document.getElementById('chatContainer');
+  const ALLOWED_EXTENSIONS = /\.(xlsx|xls|doc|docx)$/i;
+  let dragCounter = 0;
+
+  chatContainerEl.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    dropOverlay.classList.add('active');
+  });
+
+  chatContainerEl.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      dropOverlay.classList.remove('active');
+    }
+  });
+
+  chatContainerEl.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+
+  chatContainerEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    dropOverlay.classList.remove('active');
+
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    if (!ALLOWED_EXTENSIONS.test(file.name)) {
+      appendMessage('bot', 'Solo se permiten archivos Excel (.xlsx, .xls) o Word (.doc, .docx).');
+      return;
+    }
+
+    pendingFile = file;
+    fileLabelName.textContent = file.name;
+    fileLabel.style.display = 'flex';
+    userInput.placeholder = 'Agrega una pregunta o envia sin texto...';
+    userInput.focus();
+  });
 
   // Attach file
   attachBtn.addEventListener('click', () => fileInput.click());
