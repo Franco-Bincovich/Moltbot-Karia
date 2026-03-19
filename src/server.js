@@ -115,6 +115,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
     .from('conversaciones')
     .select('rol, contenido, created_at')
     .eq('sesion_id', req.params.id)
+    .neq('rol', 'system')
     .order('created_at', { ascending: true });
 
   if (error) {
