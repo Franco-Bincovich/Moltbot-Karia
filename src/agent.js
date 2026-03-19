@@ -7,6 +7,7 @@ const { getEvents, createEvent, getTodayEvents, deleteEvent } = require('./tools
 const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gmail');
 const { listFiles, getFile, uploadFile } = require('./tools/google/drive');
 const { searchContacts, addContact } = require('./tools/contacts');
+const { buscarContactosGmail } = require('./tools/google/contactos_gmail');
 
 const client = new Anthropic();
 
@@ -426,8 +427,24 @@ async function executeTool(block, excelContext, usuarioId) {
     case 'save_to_drive':
       return await uploadFile(input.name, input.content, input.mimeType || 'text/plain');
 
-    case 'search_contacts':
-      return JSON.stringify(await searchContacts(input.query, usuarioId));
+    case 'search_contacts': {
+      /*
+       * Búsqueda de contactos en cascada:
+       *   1. Primero busca en Supabase (contactos propios del usuario).
+       *   2. Si no hay resultados (found: false), busca en Google People API
+       *      usando las credenciales OAuth2 de moltbotkaria@gmail.com.
+       *   Los resultados de Gmail incluyen la propiedad "fuente: 'Gmail'"
+       *   para que el agente pueda indicárselo al usuario en su respuesta.
+       */
+      const resultadoSupabase = await searchContacts(input.query, usuarioId);
+      if (resultadoSupabase.found) {
+        return JSON.stringify(resultadoSupabase);
+      }
+
+      console.log(`[agent] search_contacts: sin resultados en Supabase, buscando en Gmail People API...`);
+      const resultadoGmail = await buscarContactosGmail(input.query);
+      return JSON.stringify(resultadoGmail);
+    }
 
     case 'add_contact':
       return JSON.stringify(await addContact(input.nombre, input.email, usuarioId));
