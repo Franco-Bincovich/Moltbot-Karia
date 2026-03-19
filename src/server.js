@@ -123,6 +123,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
+  console.log(`[sessions] Mensajes encontrados para sesión ${req.params.id}: ${(data || []).length}`);
   res.json(data || []);
 });
 

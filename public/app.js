@@ -87,6 +87,8 @@ async function selectSession(sesionId, itemEl) {
     const res = await fetch(`/api/sessions/${sesionId}/messages`);
     const messages = await res.json();
 
+    console.log(`[app] Mensajes recibidos para sesión ${sesionId}:`, messages);
+
     if (!Array.isArray(messages) || messages.length === 0) {
       showWelcome();
       return;
