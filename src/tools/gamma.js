@@ -4,12 +4,45 @@ const path = require('path');
 const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
 const BASE_URL = 'https://public-api.gamma.app/v1.0';
 
+// === Timeouts ===
+
+const TIMEOUT_CREACION_MS = 30_000;   // 30 segundos para la llamada inicial de creación
+const TIMEOUT_POLLING_MS = 10_000;    // 10 segundos para cada request de polling
+const TIMEOUT_GLOBAL_MS = 180_000;    // 3 minutos máximo para toda la operación
+const TIMEOUT_DESCARGA_MS = 30_000;   // 30 segundos para descargar el PDF
+
+// === Helpers ===
+
 /**
- * Downloads a file from a URL and saves it to /tmp.
- * Returns the local file path.
+ * Ejecuta un fetch con timeout usando AbortController.
+ * @param {string} url
+ * @param {object} options - Opciones de fetch
+ * @param {number} timeoutMs - Timeout en milisegundos
+ * @returns {Promise<Response>}
+ */
+async function fetchConTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`La solicitud a Gamma excedió el tiempo límite (${Math.round(timeoutMs / 1000)}s).`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Descarga un archivo desde una URL y lo guarda en /tmp.
+ * @param {string} url - URL del archivo a descargar
+ * @param {string} filename - Nombre con el que guardar el archivo
+ * @returns {Promise<string>} Ruta local del archivo descargado
  */
 async function downloadToTmp(url, filename) {
-  const res = await fetch(url);
+  const res = await fetchConTimeout(url, {}, TIMEOUT_DESCARGA_MS);
   if (!res.ok) throw new Error(`Error descargando PDF: HTTP ${res.status}`);
   const buffer = Buffer.from(await res.arrayBuffer());
   const filePath = path.join('/tmp', filename);
@@ -18,20 +51,31 @@ async function downloadToTmp(url, filename) {
   return filePath;
 }
 
+// === Función principal ===
+
+/**
+ * Genera una presentación en Gamma y retorna el link.
+ * Timeout global de 3 minutos para toda la operación (creación + polling).
+ * @param {string} topic - Tema de la presentación
+ * @param {string} details - Detalles y estilo
+ * @returns {Promise<string>} Mensaje con el link de la presentación
+ */
 async function generatePresentation(topic, details) {
   if (!GAMMA_API_KEY) {
     return 'Error: GAMMA_API_KEY no configurada.';
   }
 
-  // Build inputText with topic and details (includes style preference from agent)
   let inputText = topic;
   if (details) {
     inputText += `\n\n${details}`;
   }
 
-  // Paso 1: Crear la generación
+  // Registrar inicio para controlar el timeout global
+  const inicioGlobal = Date.now();
+
+  // Paso 1: Crear la generación (timeout 30s)
   console.log(`[gamma] Creando presentación: "${topic}"`);
-  const createRes = await fetch(`${BASE_URL}/generations`, {
+  const createRes = await fetchConTimeout(`${BASE_URL}/generations`, {
     method: 'POST',
     headers: {
       'X-API-KEY': GAMMA_API_KEY,
@@ -44,7 +88,7 @@ async function generatePresentation(topic, details) {
       numCards: 10,
       exportAs: 'pdf',
     }),
-  });
+  }, TIMEOUT_CREACION_MS);
 
   if (!createRes.ok) {
     const text = await createRes.text();
@@ -64,17 +108,28 @@ async function generatePresentation(topic, details) {
     throw new Error('Gamma no devolvió un generationId.');
   }
 
-  // Paso 2: Polling cada 5 segundos hasta completed o failed
-  const maxAttempts = 40; // ~3.5 minutos máximo
+  // Paso 2: Polling hasta completed, failed o timeout global
+  const maxAttempts = 40;
   for (let i = 0; i < maxAttempts; i++) {
+    // Verificar timeout global antes de cada intento
+    if (Date.now() - inicioGlobal > TIMEOUT_GLOBAL_MS) {
+      console.warn(`[gamma] Timeout global alcanzado (${TIMEOUT_GLOBAL_MS / 1000}s)`);
+      return 'La generación de la presentación está tomando más tiempo del esperado. Intentalo de nuevo en unos minutos.';
+    }
+
     await new Promise((r) => setTimeout(r, 5000));
 
-    const statusRes = await fetch(`${BASE_URL}/generations/${generationId}`, {
-      headers: { 'X-API-KEY': GAMMA_API_KEY },
-    });
+    let statusRes;
+    try {
+      statusRes = await fetchConTimeout(`${BASE_URL}/generations/${generationId}`, {
+        headers: { 'X-API-KEY': GAMMA_API_KEY },
+      }, TIMEOUT_POLLING_MS);
+    } catch (err) {
+      console.warn(`[gamma] Polling intento ${i + 1} falló: ${err.message}`);
+      continue;
+    }
 
     console.log(`[gamma] Polling intento ${i + 1}: HTTP ${statusRes.status}`);
-
     if (!statusRes.ok) continue;
 
     const statusData = await statusRes.json();
@@ -86,11 +141,10 @@ async function generatePresentation(topic, details) {
       const gammaUrl = statusData.gammaUrl ?? statusData.url;
 
       if (exportUrl) {
-        // Download PDF to /tmp for potential email attachment
         const safeTopic = topic.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').trim().replace(/\s+/g, '_');
         const pdfFilename = `presentacion_${safeTopic}_${Date.now()}.pdf`;
         try {
-          const localPath = await downloadToTmp(exportUrl, pdfFilename);
+          await downloadToTmp(exportUrl, pdfFilename);
           return `Presentación lista. Descargá el PDF acá: ${exportUrl}\n[PDF guardado localmente: ${pdfFilename}]`;
         } catch (dlErr) {
           console.warn('[gamma] No se pudo descargar el PDF:', dlErr.message);

@@ -4,11 +4,16 @@ const { getAuthClient, isConfigured } = require('./auth');
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 const TZ = 'America/Argentina/Buenos_Aires';
 
-/** Crea y retorna el cliente de Google Calendar autenticado. */
+// === Timeouts ===
+
+// 15 segundos para todas las operaciones de Calendar (lectura, creación, eliminación)
+const TIMEOUT_MS = 15_000;
+
+/** Crea y retorna el cliente de Google Calendar autenticado con timeout configurado. */
 function getCalendar() {
   const auth = getAuthClient();
   if (!auth) return null;
-  return google.calendar({ version: 'v3', auth });
+  return google.calendar({ version: 'v3', auth, timeout: TIMEOUT_MS });
 }
 
 // === Helpers ===

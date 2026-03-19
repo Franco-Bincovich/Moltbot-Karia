@@ -4,10 +4,23 @@ const { getAuthClient, isConfigured } = require('./auth');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
+// === Timeouts ===
+
+const TIMEOUT_LECTURA_MS = 15_000;  // 15 segundos para lectura y listado
+const TIMEOUT_SUBIDA_MS = 30_000;   // 30 segundos para subida de archivos
+
+/** Crea y retorna el cliente de Google Drive autenticado con timeout de lectura por defecto. */
 function getDrive() {
   const auth = getAuthClient();
   if (!auth) return null;
-  return google.drive({ version: 'v3', auth });
+  return google.drive({ version: 'v3', auth, timeout: TIMEOUT_LECTURA_MS });
+}
+
+/** Crea y retorna el cliente de Google Drive con timeout extendido para subidas. */
+function getDriveUpload() {
+  const auth = getAuthClient();
+  if (!auth) return null;
+  return google.drive({ version: 'v3', auth, timeout: TIMEOUT_SUBIDA_MS });
 }
 
 /**
@@ -118,7 +131,8 @@ async function getFile(fileId) {
 async function uploadFile(name, content, mimeType = 'text/plain') {
   if (!isConfigured()) return NOT_CONFIGURED;
 
-  const drive = getDrive();
+  // Usar cliente con timeout extendido (30s) para subidas
+  const drive = getDriveUpload();
 
   console.log(`[drive] Subiendo archivo: "${name}" (${mimeType})`);
 

@@ -11,6 +11,11 @@ const { buscarContactosGmail } = require('./tools/google/contactos_gmail');
 
 const client = new Anthropic();
 
+// === Timeouts ===
+
+// 60 segundos para cada llamada a la API de Claude (incluye tool-use loop)
+const TIMEOUT_CLAUDE_MS = 60_000;
+
 // === System prompt ===
 
 /**
@@ -550,14 +555,22 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
 
   console.log(`[agent] Contexto: ${messages.length} turnos | Excel: ${!!excelContext} | Word: ${!!wordContext} | Rol: ${userRol} | Tools: ${toolsActivas.length}`);
 
-  // Primera llamada a Claude
-  let response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4096,
-    system: systemPrompt,
-    tools: toolsActivas,
-    messages,
-  });
+  // Primera llamada a Claude (timeout 60s)
+  let response;
+  try {
+    response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      system: systemPrompt,
+      tools: toolsActivas,
+      messages,
+    }, { timeout: TIMEOUT_CLAUDE_MS });
+  } catch (err) {
+    if (err.name === 'APIConnectionTimeoutError' || err.message?.includes('timeout')) {
+      throw new Error('El agente tardó demasiado en responder. Por favor intentá de nuevo.');
+    }
+    throw err;
+  }
 
   // Loop de tool-use: continuar mientras Claude quiera ejecutar herramientas
   while (response.stop_reason === 'tool_use') {
@@ -586,14 +599,21 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
 
     messages.push({ role: 'user', content: resultadosTools });
 
-    // Nueva llamada a Claude con los resultados de las herramientas
-    response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: systemPrompt,
-      tools: toolsActivas,
-      messages,
-    });
+    // Nueva llamada a Claude con los resultados de las herramientas (timeout 60s)
+    try {
+      response = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: systemPrompt,
+        tools: toolsActivas,
+        messages,
+      }, { timeout: TIMEOUT_CLAUDE_MS });
+    } catch (err) {
+      if (err.name === 'APIConnectionTimeoutError' || err.message?.includes('timeout')) {
+        throw new Error('El agente tardó demasiado en responder. Por favor intentá de nuevo.');
+      }
+      throw err;
+    }
   }
 
   // Extraer y retornar el texto de la respuesta final

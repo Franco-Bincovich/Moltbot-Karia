@@ -5,11 +5,16 @@ const path = require('path');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
-/** Crea y retorna el cliente de Gmail autenticado. */
+// === Timeouts ===
+
+// 15 segundos para todas las operaciones de Gmail (lectura, envío, búsqueda)
+const TIMEOUT_MS = 15_000;
+
+/** Crea y retorna el cliente de Gmail autenticado con timeout configurado. */
 function getGmail() {
   const auth = getAuthClient();
   if (!auth) return null;
-  return google.gmail({ version: 'v1', auth });
+  return google.gmail({ version: 'v1', auth, timeout: TIMEOUT_MS });
 }
 
 // === Helpers ===
