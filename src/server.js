@@ -13,6 +13,8 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { handleChat } = require('./agent');
 // Cliente Supabase singleton — configuración centralizada en src/config/supabase.js
 const { supabase } = require('./config/supabase');
+// Cola de requests para /api/chat — limita concurrencia para no colapsar APIs externas
+const { middlewareCola, obtenerEstadoCola } = require('./config/cola');
 const { parseExcelBuffer } = require('./tools/excel');
 const mammoth = require('mammoth');
 // Middlewares de validación y sanitización de inputs
@@ -339,6 +341,38 @@ app.get('/download/:filename', (req, res) => {
   res.download(filePath);
 });
 
+// === Estado del servidor ===
+
+/**
+ * GET /api/status — Estado actual del servidor para monitoreo.
+ * Devuelve: { cola, supabase, uptime, version }
+ * No requiere autenticación para facilitar health checks externos.
+ */
+app.get('/api/status', (req, res) => {
+  const estadoCola = obtenerEstadoCola();
+  const pkg = require('../package.json');
+
+  res.json({
+    // Estado de la cola de requests del chat
+    cola: {
+      activos: estadoCola.activos,
+      enCola: estadoCola.enCola,
+      capacidad: {
+        maxConcurrentes: estadoCola.maxConcurrentes,
+        maxEnCola: estadoCola.maxEnCola,
+      },
+      totalProcesados: estadoCola.totalProcesados,
+      totalRechazados: estadoCola.totalRechazados,
+    },
+    // Conexión a Supabase
+    supabase: supabase ? 'conectado' : 'desconectado',
+    // Tiempo que lleva corriendo el servidor (en segundos)
+    uptime: Math.floor(process.uptime()),
+    // Versión del proyecto desde package.json
+    version: pkg.version,
+  });
+});
+
 // === Chat ===
 
 /**
@@ -353,12 +387,13 @@ app.get('/download/:filename', (req, res) => {
  *   4. Retornar respuesta del agente + contextos de archivos para el frontend
  *
  * Middlewares (en orden): chatLimiter (30 msg/15min) → authenticateToken → multer →
- *   validarChat → manejarErroresValidacion
+ *   validarChat → manejarErroresValidacion → middlewareCola (max 10 simultáneos, 100 en espera)
  *
  * multer debe ejecutarse ANTES de validarChat porque necesita parsear el
  * multipart/form-data para que express-validator pueda leer los campos de texto.
+ * La cola se aplica DESPUÉS de la validación para no encolar requests inválidos.
  */
-app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), validarChat, manejarErroresValidacion, async (req, res) => {
+app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), validarChat, manejarErroresValidacion, middlewareCola(), async (req, res) => {
   const ts = new Date().toISOString();
   const { usuario_id, rol } = req.user;
 
