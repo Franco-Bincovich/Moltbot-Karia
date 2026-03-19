@@ -17,10 +17,30 @@ const client = new Anthropic();
 const TIMEOUT_CLAUDE_MS = 60_000;
 
 // === System prompt ===
+//
+// El system prompt es una función (no una constante) porque inyecta la fecha actual
+// de Argentina en cada invocación. Esto permite que Claude interprete correctamente
+// referencias temporales como "mañana", "el lunes", etc.
+//
+// Estructura del prompt:
+//   1. FECHAS — Fecha actual + mañana en ISO, con regla de confirmación antes de crear eventos
+//   2. IDENTIDAD — Nombre del agente, idioma, tono
+//   3. REGLAS DE COMPORTAMIENTO — Concisión, manejo de insultos, no inventar datos
+//   4. RESULTADOS DE HERRAMIENTAS — Siempre mostrar datos literales, nunca filtrar
+//   5. CAPACIDADES — Lista de 8 herramientas con reglas específicas para cada una
+//   6. REGLAS CRÍTICAS — Contactos antes de emails, exportación solo si se pide explícitamente
+//
+// Cada sección existe para resolver un problema real observado en producción:
+//   - FECHAS: el agente creaba eventos en fecha incorrecta con "mañana"
+//   - CONCISIÓN: respondía con párrafos innecesarios
+//   - RESULTADOS: decía "no encontré" cuando la herramienta sí devolvió datos
+//   - CONTACTOS: enviaba emails sin buscar el contacto primero
+//   - EXPORTACIÓN: generaba documentos sin que el usuario los pidiera
 
 /**
  * Genera el system prompt con la fecha actual de Argentina inyectada dinámicamente.
- * Incluye reglas de comportamiento, capacidades y restricciones del agente.
+ * Se ejecuta en cada mensaje para que la fecha siempre sea correcta.
+ * @returns {string} System prompt completo para Claude
  */
 function getSystemPrompt() {
   const now = new Date();
@@ -98,8 +118,28 @@ Cuando necesites usar una herramienta, invocala. No simules resultados.`;
 }
 
 // === Definición de herramientas ===
+//
+// Cada tool se define en formato Anthropic Tool Use: { name, description, input_schema }.
+// Claude decide cuándo invocar cada tool basándose en la description y las reglas del system prompt.
+//
+// Herramientas disponibles:
+//   - search_competitors  → Búsqueda web de precios (usa Claude Haiku + web_search en search.js)
+//   - generate_presentation → Crea presentación en Gamma (usa Gamma API en gamma.js)
+//   - analyze_excel       → Analiza datos de Excel adjunto (usa Claude Sonnet en excel.js)
+//   - export_to_word      → Genera .docx descargable (usa librería docx en export.js)
+//   - export_to_excel     → Genera .xlsx descargable (usa exceljs en export.js)
+//   - get_calendar_events → Lee eventos de Google Calendar
+//   - create_calendar_event → Crea evento con soporte para Meet e invitados
+//   - delete_calendar_event → Elimina evento por ID
+//   - get_emails          → Lee o busca emails en Gmail
+//   - send_email          → Envía email con soporte para adjuntos desde /tmp
+//   - search_drive        → Lista archivos en Google Drive
+//   - save_to_drive       → Sube archivo a Google Drive
+//   - search_contacts     → Busca contactos en Google People API
 
 const TOOLS = [
+  // Búsqueda de precios: recibe {query}. Devuelve tabla markdown con Tienda | Precio | Link.
+  // El query debe incluir el nombre de la tienda si el usuario la mencionó.
   {
     name: 'search_competitors',
     description:
@@ -116,6 +156,8 @@ const TOOLS = [
       required: ['query'],
     },
   },
+  // Presentaciones: recibe {topic, details}. Devuelve link al PDF de Gamma.
+  // El agente debe preguntar estilo antes de invocar.
   {
     name: 'generate_presentation',
     description:
@@ -135,6 +177,8 @@ const TOOLS = [
       required: ['topic', 'details'],
     },
   },
+  // Análisis de Excel: recibe {question, analysisType, personFilter?}.
+  // Requiere que el usuario haya adjuntado un Excel previamente (excelContext).
   {
     name: 'analyze_excel',
     description:
@@ -159,6 +203,8 @@ const TOOLS = [
       required: ['question', 'analysisType'],
     },
   },
+  // Exportación: generan archivos en /tmp y devuelven link /download/{filename}.
+  // Solo se usan cuando el usuario pide explícitamente exportar.
   {
     name: 'export_to_word',
     description:
@@ -207,6 +253,8 @@ const TOOLS = [
       required: ['headers', 'rows', 'filename'],
     },
   },
+  // Google Calendar: lectura, creación y eliminación de eventos.
+  // Usa timezone America/Argentina/Buenos_Aires para evitar desfasajes de 3 horas.
   {
     name: 'get_calendar_events',
     description:
@@ -261,6 +309,8 @@ const TOOLS = [
       required: ['eventId'],
     },
   },
+  // Gmail: lectura, búsqueda y envío de emails.
+  // El envío soporta adjuntos desde /tmp (PDFs de Gamma, Word, Excel generados).
   {
     name: 'get_emails',
     description: 'Obtiene los últimos emails no leídos de la cuenta moltbotkaria@gmail.com.',
@@ -294,6 +344,7 @@ const TOOLS = [
       required: ['to', 'subject', 'body'],
     },
   },
+  // Google Drive: listado y subida de archivos.
   {
     name: 'search_drive',
     description: 'Busca y lista archivos en el Google Drive de moltbotkaria@gmail.com.',
@@ -324,6 +375,8 @@ const TOOLS = [
       required: ['name', 'content'],
     },
   },
+  // Contactos: búsqueda en Google People API. Se debe invocar antes de send_email
+  // cuando el usuario menciona un nombre sin email explícito.
   {
     name: 'search_contacts',
     description:
@@ -345,18 +398,30 @@ const TOOLS = [
 ];
 
 // === Ejecución de herramientas ===
+//
+// executeTool es el dispatcher central: recibe un tool_use block de Claude
+// y lo rutea a la función correspondiente. Cada case del switch:
+//   1. Extrae y transforma los parámetros del input de Claude
+//   2. Llama a la función del módulo correspondiente
+//   3. Retorna el resultado como string (Claude lo recibe como tool_result)
+//
+// Si una herramienta falla, el error se captura en handleChat y se envía
+// a Claude como tool_result con el mensaje de error, para que pueda
+// informar al usuario de forma natural.
 
 /**
  * Ejecuta una herramienta por nombre y retorna el resultado como string.
- * Centraliza toda la lógica de dispatch para mantener handleChat limpio.
- * @param {object} block - Tool use block de Claude (con name, input, id)
- * @param {string|null} excelContext - Datos del Excel en el contexto actual
- * @param {string|null} usuarioId - ID del usuario (null si no hay autenticación)
+ * @param {object} block - Tool use block de Claude: { name, input, id }
+ * @param {string|null} excelContext - Datos del Excel adjunto (null si no hay)
+ * @param {string|null} usuarioId - ID del usuario autenticado (null si no hay sesión)
+ * @returns {Promise<string>} Resultado de la herramienta en texto plano o markdown
  */
 async function executeTool(block, excelContext, usuarioId) {
   const { name, input } = block;
 
   switch (name) {
+    // Búsqueda de precios → search.js (Claude Haiku + web_search)
+    // Se trunca a 2000 chars para evitar rate limit de tokens en el agente principal
     case 'search_competitors': {
       const MAX_CHARS = 2000;
       let resultado = await searchCompetitors(input.query);
@@ -366,18 +431,22 @@ async function executeTool(block, excelContext, usuarioId) {
       return resultado;
     }
 
+    // Presentación → gamma.js (Gamma API: creación + polling + descarga PDF a /tmp)
     case 'generate_presentation':
       return await generatePresentation(input.topic, input.details);
 
+    // Análisis de Excel → excel.js (pasa los datos del Excel a Claude Sonnet para análisis)
     case 'analyze_excel':
       if (!excelContext) return 'No hay ningún archivo Excel adjunto en esta conversación.';
       return await analyzeExcel(excelContext, input.question, input.analysisType, input.personFilter || null);
 
+    // Exportación a Word → export.js (genera .docx en /tmp, retorna link de descarga)
     case 'export_to_word': {
       const filePath = await generateWord(input.content, input.filename);
       return `Archivo Word generado. Link de descarga: /download/${require('path').basename(filePath)}`;
     }
 
+    // Exportación a Excel → export.js (genera .xlsx en /tmp, retorna link de descarga)
     case 'export_to_excel': {
       const filePath = await generateExcelFile(
         { headers: input.headers, rows: input.rows, sheetName: input.sheetName || 'Datos' },
@@ -386,9 +455,11 @@ async function executeTool(block, excelContext, usuarioId) {
       return `Archivo Excel generado. Link de descarga: /download/${require('path').basename(filePath)}`;
     }
 
+    // Calendar → calendar.js. days=0 devuelve solo hoy, otro valor devuelve los próximos N días
     case 'get_calendar_events':
       return input.days === 0 ? await getTodayEvents() : await getEvents(input.days || 7);
 
+    // Creación de evento: parsea attendees (string CSV → array) y delega a createEvent
     case 'create_calendar_event': {
       const invitados = input.attendees
         ? input.attendees.split(',').map((e) => e.trim()).filter(Boolean)
@@ -408,6 +479,7 @@ async function executeTool(block, excelContext, usuarioId) {
         ? await searchEmails(input.query)
         : await getUnreadEmails(input.limit || 10);
 
+    // Envío de email: parsea attachments (string CSV → array de filenames en /tmp)
     case 'send_email': {
       const adjuntos = input.attachments
         ? input.attachments.split(',').map((f) => f.trim()).filter(Boolean)
@@ -526,6 +598,22 @@ function getSystemPromptParaRol(rol) {
 }
 
 // === Handler principal ===
+//
+// Flujo completo de handleChat:
+//   1. Recuperar contexto de archivos adjuntos (Excel/Word) del historial si no viene directo
+//   2. Filtrar tools y system prompt según el rol del usuario (admin vs document_analyst)
+//   3. Preparar historial: limpiar marcadores de archivos, limitar a 6 mensajes, inyectar contexto
+//   4. Llamar a Claude con el historial preparado
+//   5. Si Claude responde con tool_use → ejecutar las herramientas → enviar resultados → repetir
+//   6. Cuando Claude responde con texto final (stop_reason !== 'tool_use') → retornar al usuario
+//
+// El loop de tool-use puede ejecutar múltiples herramientas en secuencia.
+// Ejemplo: el usuario pide "mandale a Hernán el PDF de la presentación"
+//   → Claude llama a search_contacts("Hernán")
+//   → recibe el email
+//   → Claude llama a send_email(email, asunto, body, ["presentacion.pdf"])
+//   → recibe confirmación
+//   → Claude genera la respuesta final al usuario
 
 /**
  * Procesa un mensaje del usuario y retorna la respuesta del agente.

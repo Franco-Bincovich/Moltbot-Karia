@@ -79,9 +79,20 @@ const upload = multer({
 });
 
 // === Middlewares globales ===
+//
+// Orden de ejecución para cada request:
+//   1. helmet         → Agrega headers de seguridad HTTP a todas las respuestas
+//   2. logger         → Loguea método y URL de cada request entrante
+//   3. express.json   → Parsea body JSON (para requests que no son multipart)
+//   4. express.static → Sirve el frontend desde public/ (HTML, CSS, JS)
+//   5. apiLimiter     → Rate limit global en /api/ (100 req / 15 min por IP)
+//
+// Luego, cada ruta tiene middlewares específicos en su cadena:
+//   - loginLimiter / chatLimiter → Rate limits específicos
+//   - authenticateToken          → Verifica JWT en Authorization header
+//   - upload.single('file')      → Parsea multipart con multer (solo en /api/chat)
+//   - validarX + manejarErrores  → Validación de inputs con express-validator
 
-// Headers de seguridad HTTP (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
-// CSP deshabilitado para no interferir con el frontend actual (inline scripts/styles)
 app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use((req, res, next) => {
@@ -146,8 +157,14 @@ function authenticateToken(req, res, next) {
 }
 
 /**
- * POST /api/login — Autentica al usuario contra la tabla "usuarios" en Supabase.
- * Compara password con bcrypt(md5(contraseña)) y retorna un JWT firmado.
+ * POST /api/login
+ * Recibe: { email: string, password: string }
+ * Devuelve: { token: string (JWT 8h), usuario: { nombre, email, rol } }
+ * Errores: 401 credenciales inválidas, 500 error de DB
+ *
+ * Flujo: email → buscar en Supabase → md5(password) → bcrypt.compare → JWT
+ * El hash en DB es bcrypt(md5(contraseña)) por migración histórica de MD5 a bcrypt.
+ * Middlewares: loginLimiter (10 intentos/15min) → validarLogin → manejarErroresValidacion
  */
 app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, async (req, res) => {
   if (supabaseNoDisponible(res)) return;
@@ -217,7 +234,14 @@ async function generateSessionName(firstMessage) {
   }
 }
 
-/** POST /api/sessions — Crea una sesión nueva con nombre generado por IA. */
+/**
+ * POST /api/sessions
+ * Recibe: { firstMessage: string } — primer mensaje de la conversación
+ * Devuelve: { id: uuid, nombre: string } — sesión creada en Supabase
+ *
+ * El nombre se genera automáticamente con Claude Haiku (2-4 palabras en español).
+ * Middlewares: authenticateToken → validarCrearSesion → manejarErroresValidacion
+ */
 app.post('/api/sessions', authenticateToken, validarCrearSesion, manejarErroresValidacion, async (req, res) => {
   if (supabaseNoDisponible(res)) return;
 
@@ -242,7 +266,11 @@ app.post('/api/sessions', authenticateToken, validarCrearSesion, manejarErroresV
   }
 });
 
-/** GET /api/sessions — Lista las últimas 50 sesiones del usuario autenticado. */
+/**
+ * GET /api/sessions
+ * Devuelve: Array<{ id, nombre, iniciada_at }> — últimas 50 sesiones del usuario
+ * Middlewares: authenticateToken
+ */
 app.get('/api/sessions', authenticateToken, async (req, res) => {
   if (supabaseNoDisponible(res)) return;
 
@@ -263,8 +291,15 @@ app.get('/api/sessions', authenticateToken, async (req, res) => {
   }
 });
 
-/** GET /api/sessions/:id/messages — Carga los mensajes de una sesión, excluye rol "system".
- *  Valida que la sesión pertenezca al usuario autenticado antes de devolver los mensajes. */
+/**
+ * GET /api/sessions/:id/messages
+ * Devuelve: Array<{ rol, contenido, created_at }> — mensajes de la sesión (sin "system")
+ * Errores: 403 si la sesión no pertenece al usuario del JWT
+ *
+ * Primero verifica ownership de la sesión para evitar que un usuario
+ * lea mensajes de otro usuario adivinando UUIDs.
+ * Middlewares: authenticateToken
+ */
 app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
   if (supabaseNoDisponible(res)) return;
 
@@ -312,12 +347,20 @@ app.get('/download/:filename', (req, res) => {
 
 /**
  * POST /api/chat — Endpoint principal del agente.
- * Acepta mensaje de texto y/o archivo adjunto (Excel/Word).
- * Parsea el archivo, llama al agente con el rol del usuario y guarda en Supabase.
+ * Recibe: { message: string, history: Array, sesion_id?: uuid } + archivo opcional (multipart)
+ * Devuelve: { reply: string, excelContext?: string, wordContext?: string }
  *
- * Orden de middlewares: multer debe ejecutarse antes de validarChat porque
- * necesita parsear el multipart/form-data para que express-validator pueda
- * leer los campos de texto del body.
+ * Flujo:
+ *   1. Parsear archivo adjunto si existe (Excel → parseExcelBuffer, Word → mammoth)
+ *   2. Llamar a handleChat con mensaje + historial + contexto de archivos + rol del usuario
+ *   3. Guardar mensajes (user + assistant) en Supabase si hay sesión activa (no crítico)
+ *   4. Retornar respuesta del agente + contextos de archivos para el frontend
+ *
+ * Middlewares (en orden): chatLimiter (30 msg/15min) → authenticateToken → multer →
+ *   validarChat → manejarErroresValidacion
+ *
+ * multer debe ejecutarse ANTES de validarChat porque necesita parsear el
+ * multipart/form-data para que express-validator pueda leer los campos de texto.
  */
 app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), validarChat, manejarErroresValidacion, async (req, res) => {
   const ts = new Date().toISOString();

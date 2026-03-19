@@ -61,9 +61,11 @@ function formatearEvento(ev, incluirFecha) {
 // === Funciones públicas ===
 
 /**
- * Obtiene eventos de los próximos X días.
+ * Obtiene eventos de los próximos X días desde hoy (hora Argentina).
+ * El rango va desde 00:00:00 de hoy hasta 23:59:59 del último día, en UTC-3.
+ * Cada evento se formatea con fecha, rango horario, descripción e ID.
  * @param {number} days - Cantidad de días a consultar (default 7)
- * @returns {string} Eventos formateados
+ * @returns {Promise<string>} Lista formateada de eventos o mensaje "No hay eventos"
  */
 async function getEvents(days = 7) {
   if (!isConfigured()) return NOT_CONFIGURED;
@@ -97,8 +99,9 @@ async function getEvents(days = 7) {
 }
 
 /**
- * Obtiene los eventos de hoy.
- * @returns {string} Eventos de hoy formateados
+ * Obtiene los eventos de hoy (00:00 a 23:59 hora Argentina).
+ * Versión simplificada de getEvents para el caso days=0 en el agente.
+ * @returns {Promise<string>} Lista formateada con solo hora (sin fecha) e ID de cada evento
  */
 async function getTodayEvents() {
   if (!isConfigured()) return NOT_CONFIGURED;
@@ -129,16 +132,27 @@ async function getTodayEvents() {
 }
 
 /**
- * Crea un evento en Google Calendar.
- * Verifica conflictos de horario antes de crear.
+ * Crea un evento en Google Calendar con soporte para invitados y Google Meet.
+ *
+ * Flujo:
+ *   1. Calcular hora de fin sumando duración en minutos (aritmética, sin Date para evitar UTC)
+ *   2. Verificar conflictos de horario en el mismo día (usa minutos desde medianoche)
+ *   3. Si hay conflicto → retornar aviso SIN crear el evento
+ *   4. Si no hay conflicto → crear el evento con reintentos (3 intentos, backoff exponencial)
+ *   5. Retornar confirmación con título, fecha, hora, ID, invitados y link de Meet si aplica
+ *
+ * Las fechas se envían como strings locales SIN timezone suffix (ej: "2026-03-19T14:30:00")
+ * y se deja que Google las interprete usando el campo timeZone: 'America/Argentina/Buenos_Aires'.
+ * Esto evita el bug histórico de 3 horas de desfase por conversión UTC.
+ *
  * @param {string} title - Título del evento
  * @param {string} date - Fecha en formato YYYY-MM-DD
- * @param {string} time - Hora en formato HH:MM (24h)
+ * @param {string} time - Hora de inicio en formato HH:MM (24h)
  * @param {number} duration - Duración en minutos (default 60)
  * @param {string} description - Descripción opcional
- * @param {string[]} attendees - Lista de emails de invitados
- * @param {boolean} withMeet - Si true, crea link de Google Meet
- * @returns {string} Confirmación con datos del evento creado
+ * @param {string[]} attendees - Emails de invitados (se les envía notificación)
+ * @param {boolean} withMeet - Si true, genera link de Google Meet automáticamente
+ * @returns {Promise<string>} Confirmación con datos del evento o aviso de conflicto
  */
 async function createEvent(title, date, time, duration = 60, description = '', attendees = [], withMeet = false) {
   if (!isConfigured()) return NOT_CONFIGURED;
@@ -221,9 +235,10 @@ async function createEvent(title, date, time, duration = 60, description = '', a
 
 /**
  * Elimina un evento de Google Calendar por su ID.
- * Primero obtiene el nombre del evento para mostrarlo en la confirmación.
- * @param {string} eventId - ID del evento a eliminar
- * @returns {string} Confirmación de eliminación
+ * Primero intenta obtener el nombre del evento para mostrarlo en la confirmación.
+ * Si no puede obtener el nombre (ej: evento ya eliminado), usa el ID como fallback.
+ * @param {string} eventId - ID del evento a eliminar (obtenido previamente con getEvents)
+ * @returns {Promise<string>} Confirmación: "Evento eliminado: **{nombre}**"
  */
 async function deleteEvent(eventId) {
   if (!isConfigured()) return NOT_CONFIGURED;

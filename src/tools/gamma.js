@@ -53,13 +53,34 @@ async function downloadToTmp(url, filename) {
 }
 
 // === Función principal ===
+//
+// Flujo completo de generatePresentation:
+//
+//   1. CREACIÓN (POST /generations)
+//      Envía el tema y detalles a la API de Gamma. Timeout 30s con 3 reintentos.
+//      Gamma devuelve un generationId para hacer polling.
+//
+//   2. POLLING (GET /generations/{id}) — cada 5 segundos
+//      Consulta el estado de la generación. Tres resultados posibles:
+//      - "completed" → tiene exportUrl (PDF) y/o gammaUrl (editor web)
+//      - "failed" → la generación falló, retorna mensaje de error
+//      - otro → sigue esperando (siguiente intento de polling)
+//      Timeout global de 3 minutos para todo el polling.
+//
+//   3. DESCARGA DEL PDF (si hay exportUrl)
+//      Descarga el PDF a /tmp para que pueda adjuntarse por email después.
+//      Si la descarga falla, igual retorna el link de Gamma para descarga manual.
+//
+//   Retorno al agente:
+//   - "Presentación lista. Descargá el PDF acá: {url}\n[PDF guardado localmente: {filename}]"
+//   - El agente usa el filename para adjuntarlo si el usuario pide enviarlo por email.
 
 /**
  * Genera una presentación en Gamma y retorna el link.
  * Timeout global de 3 minutos para toda la operación (creación + polling).
  * @param {string} topic - Tema de la presentación
- * @param {string} details - Detalles y estilo
- * @returns {Promise<string>} Mensaje con el link de la presentación
+ * @param {string} details - Detalles y estilo (incluye preferencia del usuario: Formal/Moderno/Minimalista)
+ * @returns {Promise<string>} Mensaje con el link de descarga y nombre del PDF local
  */
 async function generatePresentation(topic, details) {
   if (!GAMMA_API_KEY) {

@@ -89,9 +89,10 @@ async function fetchEmailEntries(gmail, messages) {
 // === Funciones públicas ===
 
 /**
- * Obtiene los últimos N emails no leídos.
- * @param {number} limit - Cantidad máxima de emails (default 10)
- * @returns {string} Emails formateados
+ * Obtiene los últimos N emails no leídos de la bandeja de entrada.
+ * Usa format: 'full' para poder detectar adjuntos en el payload.
+ * @param {number} limit - Cantidad máxima de emails a traer (default 10)
+ * @returns {Promise<string>} Lista formateada con De, Asunto, Preview, Fecha y adjuntos de cada email
  */
 async function getUnreadEmails(limit = 10) {
   if (!isConfigured()) return NOT_CONFIGURED;
@@ -115,12 +116,19 @@ async function getUnreadEmails(limit = 10) {
 
 /**
  * Envía un email desde moltbotkaria@gmail.com.
- * Soporta adjuntos en formato multipart/mixed.
- * @param {string} to - Destinatario
- * @param {string} subject - Asunto
+ *
+ * Sin adjuntos: construye un email simple text/plain con Content-Transfer-Encoding base64.
+ * Con adjuntos: construye un email multipart/mixed con boundary aleatorio. Cada adjunto
+ * se lee desde /tmp y se codifica en base64. Los MIME types soportados son PDF, DOCX y XLSX.
+ *
+ * El subject se codifica como RFC 2047 UTF-8 para soportar acentos y ñ.
+ * El envío tiene 3 reintentos automáticos para errores de red y rate limits.
+ *
+ * @param {string} to - Email del destinatario
+ * @param {string} subject - Asunto del email (soporta caracteres especiales)
  * @param {string} body - Cuerpo del email en texto plano
- * @param {string[]} attachmentFilenames - Nombres de archivos en /tmp para adjuntar
- * @returns {string} Confirmación del envío
+ * @param {string[]} attachmentFilenames - Nombres de archivos en /tmp para adjuntar (default [])
+ * @returns {Promise<string>} Confirmación: "Email enviado correctamente a **{to}**" + info de adjuntos
  */
 async function sendEmail(to, subject, body, attachmentFilenames = []) {
   if (!isConfigured()) return NOT_CONFIGURED;
@@ -173,8 +181,9 @@ async function sendEmail(to, subject, body, attachmentFilenames = []) {
 
 /**
  * Busca emails por término compatible con operadores de Gmail.
- * @param {string} query - Término de búsqueda (ej: "from:juan", "subject:factura")
- * @returns {string} Emails encontrados formateados
+ * Soporta operadores como from:, subject:, has:attachment, before:, after:, etc.
+ * @param {string} query - Término de búsqueda (ej: "from:juan", "subject:factura", "has:attachment")
+ * @returns {Promise<string>} Lista formateada de hasta 10 emails que coinciden con la búsqueda
  */
 async function searchEmails(query) {
   if (!isConfigured()) return NOT_CONFIGURED;
