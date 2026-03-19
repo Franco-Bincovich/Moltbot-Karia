@@ -1,5 +1,7 @@
 const { createClient } = require('@supabase/supabase-js');
 
+console.log('[contacts] SUPABASE_SERVICE_KEY (primeros 20 chars):', process.env.SUPABASE_SERVICE_KEY?.slice(0, 20) ?? 'NO CONFIGURADA');
+
 function getSupabase() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) return null;
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
