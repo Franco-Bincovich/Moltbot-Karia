@@ -39,7 +39,7 @@ function normalizarResultado(resultado) {
 /**
  * Busca contactos en Google People API filtrando por nombre o email.
  *
- * Devuelve el mismo formato que buscarContactos() de contacts.js:
+ * Devuelve el resultado en formato interno estandarizado:
  *   - { found: false }                                      → sin resultados
  *   - { found: true, unique: true, contact, fuente }        → 1 resultado
  *   - { found: true, unique: false, contacts, fuente }      → más de 1 resultado

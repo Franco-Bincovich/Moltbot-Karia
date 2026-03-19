@@ -5,8 +5,8 @@ const { analyzeExcel } = require('./tools/excel');
 const { generateWord, generateExcel: generateExcelFile } = require('./tools/export');
 const { getEvents, createEvent, getTodayEvents, deleteEvent } = require('./tools/google/calendar');
 const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gmail');
-const { listFiles, getFile, uploadFile } = require('./tools/google/drive');
-// contacts.js — addContact pendiente de reimplementación vía Gmail People API
+// getFile no se usa actualmente — solo listFiles y uploadFile tienen tool asociada
+const { listFiles, uploadFile } = require('./tools/google/drive');
 const { buscarContactosGmail } = require('./tools/google/contactos_gmail');
 
 const client = new Anthropic();
