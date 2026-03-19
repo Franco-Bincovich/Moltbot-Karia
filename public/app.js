@@ -207,10 +207,13 @@ function initChat() {
       if (data.error) {
         appendMessage('bot', `Error: ${escapeHtml(data.error)}`);
       } else {
-        const displayText = text || (pendingFile ? `[Excel adjunto: ${pendingFile.name}]` : '');
+        const displayText = text || (pendingFile ? `[Archivo adjunto: ${pendingFile.name}]` : '');
         history.push({ role: 'user', content: displayText });
         if (data.excelContext) {
           history.push({ role: 'assistant', content: `[EXCEL_DATA]\n${data.excelContext}` });
+        }
+        if (data.wordContext) {
+          history.push({ role: 'assistant', content: `[WORD_DATA]\n${data.wordContext}` });
         }
         history.push({ role: 'assistant', content: data.reply });
 

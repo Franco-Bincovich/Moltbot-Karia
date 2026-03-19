@@ -1,5 +1,22 @@
+const fs = require('fs');
+const path = require('path');
+
 const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
 const BASE_URL = 'https://public-api.gamma.app/v1.0';
+
+/**
+ * Downloads a file from a URL and saves it to /tmp.
+ * Returns the local file path.
+ */
+async function downloadToTmp(url, filename) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Error descargando PDF: HTTP ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const filePath = path.join('/tmp', filename);
+  fs.writeFileSync(filePath, buffer);
+  console.log(`[gamma] PDF descargado: ${filePath} (${buffer.length} bytes)`);
+  return filePath;
+}
 
 async function generatePresentation(topic, details) {
   if (!GAMMA_API_KEY) {
@@ -67,7 +84,19 @@ async function generatePresentation(topic, details) {
       console.log('[gamma] Respuesta completa al completarse:', JSON.stringify(statusData));
       const exportUrl = statusData.exportUrl;
       const gammaUrl = statusData.gammaUrl ?? statusData.url;
-      if (exportUrl) return `Presentación lista. Descargá el PDF acá: ${exportUrl}`;
+
+      if (exportUrl) {
+        // Download PDF to /tmp for potential email attachment
+        const safeTopic = topic.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').trim().replace(/\s+/g, '_');
+        const pdfFilename = `presentacion_${safeTopic}_${Date.now()}.pdf`;
+        try {
+          const localPath = await downloadToTmp(exportUrl, pdfFilename);
+          return `Presentación lista. Descargá el PDF acá: ${exportUrl}\n[PDF guardado localmente: ${pdfFilename}]`;
+        } catch (dlErr) {
+          console.warn('[gamma] No se pudo descargar el PDF:', dlErr.message);
+          return `Presentación lista. Descargá el PDF acá: ${exportUrl}`;
+        }
+      }
       if (gammaUrl) return `Presentación creada. Accedela acá: ${gammaUrl}`;
       console.warn('[gamma] completed sin ninguna URL disponible.');
     }

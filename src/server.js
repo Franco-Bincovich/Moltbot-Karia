@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const { handleChat } = require('./agent');
 const { parseExcelBuffer } = require('./tools/excel');
+const mammoth = require('mammoth');
 
 // Supabase client
 const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
@@ -22,11 +23,13 @@ const upload = multer({
     const allowed = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword',
     ];
-    if (allowed.includes(file.mimetype) || file.originalname.match(/\.(xlsx|xls)$/i)) {
+    if (allowed.includes(file.mimetype) || file.originalname.match(/\.(xlsx|xls|docx|doc)$/i)) {
       cb(null, true);
     } else {
-      cb(new Error('Solo se permiten archivos Excel (.xlsx, .xls)'));
+      cb(new Error('Solo se permiten archivos Excel (.xlsx, .xls) o Word (.doc, .docx)'));
     }
   },
 });
@@ -138,34 +141,52 @@ app.post('/api/chat', upload.single('file'), async (req, res) => {
   const hasMessage = message.trim().length > 0;
 
   if (!hasMessage && !hasFile) {
-    return res.status(400).json({ error: 'El mensaje o un archivo Excel son requeridos.' });
+    return res.status(400).json({ error: 'El mensaje o un archivo son requeridos.' });
   }
 
   console.log(`[${ts}] Mensaje: "${message}" | Archivo: ${hasFile ? req.file.originalname : 'ninguno'} | Historial: ${history.length} turnos`);
 
   let excelContext = null;
+  let wordContext = null;
+
   if (hasFile) {
-    try {
-      console.log(`[${ts}] Parseando Excel: ${req.file.originalname} (${req.file.size} bytes)`);
-      excelContext = parseExcelBuffer(req.file.buffer);
-      console.log(`[${ts}] Excel parseado: ${excelContext.length} caracteres`);
-    } catch (err) {
-      console.error(`[${ts}] Error al parsear Excel:`, err.message);
-      return res.status(400).json({ error: `No se pudo leer el archivo Excel: ${err.message}` });
+    const isWord = req.file.originalname.match(/\.(docx|doc)$/i);
+    const isExcel = req.file.originalname.match(/\.(xlsx|xls)$/i);
+
+    if (isExcel) {
+      try {
+        console.log(`[${ts}] Parseando Excel: ${req.file.originalname} (${req.file.size} bytes)`);
+        excelContext = parseExcelBuffer(req.file.buffer);
+        console.log(`[${ts}] Excel parseado: ${excelContext.length} caracteres`);
+      } catch (err) {
+        console.error(`[${ts}] Error al parsear Excel:`, err.message);
+        return res.status(400).json({ error: `No se pudo leer el archivo Excel: ${err.message}` });
+      }
+    } else if (isWord) {
+      try {
+        console.log(`[${ts}] Parseando Word: ${req.file.originalname} (${req.file.size} bytes)`);
+        const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+        wordContext = result.value;
+        console.log(`[${ts}] Word parseado: ${wordContext.length} caracteres`);
+      } catch (err) {
+        console.error(`[${ts}] Error al parsear Word:`, err.message);
+        return res.status(400).json({ error: `No se pudo leer el archivo Word: ${err.message}` });
+      }
     }
   }
 
   try {
     console.log(`[${ts}] Llamando a handleChat...`);
-    const reply = await handleChat(message, history, excelContext, usuarioId);
+    const reply = await handleChat(message, history, excelContext, usuarioId, wordContext);
     console.log(`[${new Date().toISOString()}] handleChat completado. Respuesta (primeros 200 chars): ${String(reply).slice(0, 200)}`);
     const result = { reply };
     if (excelContext) result.excelContext = excelContext;
+    if (wordContext) result.wordContext = wordContext;
 
     // Save conversation to Supabase
     if (supabase && usuarioId && sesionId) {
       const now = new Date().toISOString();
-      const userContent = message || (hasFile ? `[Excel adjunto: ${req.file.originalname}]` : '');
+      const userContent = message || (hasFile ? `[Archivo adjunto: ${req.file.originalname}]` : '');
       try {
         await supabase.from('conversaciones').insert([
           { sesion_id: sesionId, usuario_id: usuarioId, rol: 'user', contenido: userContent, created_at: now },

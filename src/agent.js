@@ -61,6 +61,7 @@ CAPACIDADES:
    - RECIÉN después de que el usuario confirme el estilo (y el tema si hizo falta), generá la presentación.
    - El contenido de la presentación debe basarse EXCLUSIVAMENTE en lo que se habló en la conversación (resúmenes, análisis, datos discutidos), NO en todos los datos crudos del Excel completo.
    - Incluí la preferencia de estilo en el campo "details" de la herramienta.
+   - Cuando la presentación se genere exitosamente, preguntá al usuario si quiere recibirla por mail. Si dice que sí, usá search_contacts para encontrar el destinatario si lo menciona por nombre, luego enviá el mail con el PDF adjunto usando el nombre de archivo que aparece en "[PDF guardado localmente: nombre.pdf]". Si dice que no, no la envíes.
 2. **Búsqueda de precios**: Podés buscar precios, stock y promociones de electrodomésticos en tiendas de Córdoba Argentina usando la herramienta "search_competitors". Devolvé siempre la tabla completa que devuelve la herramienta. SIEMPRE citá la fuente URL de cada resultado. Cuando busques precios en comercios, solo devolvé resultados de tiendas que existan y estén operativas hoy. Si al buscar un comercio el sitio no carga, está caído, o los resultados indican que la empresa cerró o ya no opera, no lo incluyas en la respuesta. Nunca inventes ni asumas que una tienda sigue operando.
 3. **Análisis de Excel**: Si el usuario adjuntó un archivo Excel, actuás como consultor de datos. Si el usuario no especificó qué analizar, preguntale qué aspecto le interesa (horas por persona, costos, rankings, etc.). Si especificó una pregunta, usá la herramienta "analyze_excel" directamente.
 4. **Exportar a Word/Excel**: Podés generar archivos .docx y .xlsx para descargar.
@@ -284,7 +285,7 @@ const TOOLS = [
   {
     name: 'send_email',
     description:
-      'Envía un email desde moltbotkaria@gmail.com.',
+      'Envía un email desde moltbotkaria@gmail.com. Soporta adjuntar archivos previamente generados (PDF de Gamma, Word, Excel).',
     input_schema: {
       type: 'object',
       properties: {
@@ -299,6 +300,10 @@ const TOOLS = [
         body: {
           type: 'string',
           description: 'Cuerpo del email en texto plano.',
+        },
+        attachments: {
+          type: 'string',
+          description: 'Nombres de archivos en /tmp para adjuntar, separados por coma. Ej: "presentacion_ventas_1234.pdf". Usá el nombre exacto que aparece en "[PDF guardado localmente: nombre.pdf]" o el nombre de archivos Word/Excel generados.',
         },
       },
       required: ['to', 'subject', 'body'],
@@ -378,7 +383,7 @@ const TOOLS = [
   },
 ];
 
-async function handleChat(userMessage, history, excelContext = null, usuarioId = null) {
+async function handleChat(userMessage, history, excelContext = null, usuarioId = null, wordContext = null) {
   // Si no hay excelContext directo, buscarlo en el historial
   if (!excelContext) {
     for (let i = history.length - 1; i >= 0; i--) {
@@ -390,29 +395,44 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
     }
   }
 
-  // Filtrar los mensajes [EXCEL_DATA] del historial y limitar a los últimos 6 mensajes
+  // Si no hay wordContext directo, buscarlo en el historial
+  if (!wordContext) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i];
+      if (m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[WORD_DATA]\n')) {
+        wordContext = m.content.slice('[WORD_DATA]\n'.length);
+        break;
+      }
+    }
+  }
+
+  // Filtrar los mensajes de datos de archivos del historial y limitar a los últimos 6 mensajes
   // para evitar superar el rate limit de tokens (429)
   const MAX_HISTORY_MESSAGES = 6;
   const filtered = history
-    .filter((m) => !(m.role === 'assistant' && typeof m.content === 'string' && m.content.startsWith('[EXCEL_DATA]\n')));
+    .filter((m) => !(m.role === 'assistant' && typeof m.content === 'string' && (m.content.startsWith('[EXCEL_DATA]\n') || m.content.startsWith('[WORD_DATA]\n'))));
   const trimmed = filtered.slice(-MAX_HISTORY_MESSAGES);
   // Ensure first message is from 'user' (Claude API requires alternating roles starting with user)
   const firstUserIdx = trimmed.findIndex((m) => m.role === 'user');
   const messages = (firstUserIdx > 0 ? trimmed.slice(firstUserIdx) : trimmed)
     .map((m) => ({ role: m.role, content: m.content }));
 
-  // Si hay Excel, inyectarlo en el mensaje del usuario
+  // Si hay archivo adjunto, inyectar su contenido en el mensaje del usuario
   let fullMessage;
-  if (excelContext) {
-    const userText = userMessage.trim() || '(El usuario subió el archivo sin agregar un mensaje)';
+  const userText = userMessage.trim() || '(El usuario subió el archivo sin agregar un mensaje)';
+  if (excelContext && wordContext) {
+    fullMessage = `El usuario adjuntó un archivo Excel con los siguientes datos:\n\n${excelContext}\n\nTambién adjuntó un archivo Word con el siguiente contenido:\n\n${wordContext}\n\n---\n\nMensaje del usuario: ${userText}`;
+  } else if (excelContext) {
     fullMessage = `El usuario adjuntó un archivo Excel con los siguientes datos:\n\n${excelContext}\n\n---\n\nMensaje del usuario: ${userText}`;
+  } else if (wordContext) {
+    fullMessage = `El usuario adjuntó un archivo Word con el siguiente contenido:\n\n${wordContext}\n\n---\n\nMensaje del usuario: ${userText}`;
   } else {
     fullMessage = userMessage;
   }
 
   messages.push({ role: 'user', content: fullMessage });
 
-  console.log(`[agent] Enviando a Claude. Turnos en contexto: ${messages.length} | Excel adjunto: ${!!excelContext}`);
+  console.log(`[agent] Enviando a Claude. Turnos en contexto: ${messages.length} | Excel: ${!!excelContext} | Word: ${!!wordContext}`);
 
   let response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -501,8 +521,11 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
           }
           console.log(`[agent] get_emails completado.`);
         } else if (block.name === 'send_email') {
-          result = await sendEmail(block.input.to, block.input.subject, block.input.body);
-          console.log(`[agent] send_email completado.`);
+          const attachmentList = block.input.attachments
+            ? block.input.attachments.split(',').map((f) => f.trim()).filter(Boolean)
+            : [];
+          result = await sendEmail(block.input.to, block.input.subject, block.input.body, attachmentList);
+          console.log(`[agent] send_email completado. Adjuntos: ${attachmentList.length}`);
         } else if (block.name === 'search_drive') {
           result = await listFiles(block.input.query || '');
           console.log(`[agent] search_drive completado.`);

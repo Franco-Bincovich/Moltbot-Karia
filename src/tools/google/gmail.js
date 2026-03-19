@@ -1,5 +1,7 @@
 const { google } = require('googleapis');
 const { getAuthClient, isConfigured } = require('./auth');
+const fs = require('fs');
+const path = require('path');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
@@ -87,27 +89,89 @@ async function getUnreadEmails(limit = 10) {
  * @param {string} to - Destinatario
  * @param {string} subject - Asunto
  * @param {string} body - Cuerpo del email en texto plano
+ * @param {string[]} attachmentFilenames - Nombres de archivos en /tmp para adjuntar
  * @returns {string} Confirmación
  */
-async function sendEmail(to, subject, body) {
+async function sendEmail(to, subject, body, attachmentFilenames = []) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const gmail = getGmail();
 
-  console.log(`[gmail] Enviando email a ${to} | Asunto: "${subject}"`);
+  // Resolve actual attachment files from /tmp
+  const attachments = [];
+  for (const filename of attachmentFilenames) {
+    const filePath = path.join('/tmp', filename);
+    if (fs.existsSync(filePath)) {
+      attachments.push({ filename, filePath });
+    } else {
+      console.warn(`[gmail] Adjunto no encontrado: ${filePath}`);
+    }
+  }
 
-  // Encode subject as RFC 2047 UTF-8 to handle special characters
+  console.log(`[gmail] Enviando email a ${to} | Asunto: "${subject}" | Adjuntos: ${attachments.length}`);
+
   const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
 
-  const rawMessage = [
-    `To: ${to}`,
-    `Subject: ${encodedSubject}`,
-    'Content-Type: text/plain; charset=utf-8',
-    'Content-Transfer-Encoding: base64',
-    'MIME-Version: 1.0',
-    '',
-    Buffer.from(body, 'utf-8').toString('base64'),
-  ].join('\r\n');
+  let rawMessage;
+
+  if (attachments.length === 0) {
+    // Simple email without attachments
+    rawMessage = [
+      `To: ${to}`,
+      `Subject: ${encodedSubject}`,
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
+      'MIME-Version: 1.0',
+      '',
+      Buffer.from(body, 'utf-8').toString('base64'),
+    ].join('\r\n');
+  } else {
+    // Multipart email with attachments
+    const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const parts = [];
+
+    // Text body part
+    parts.push([
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from(body, 'utf-8').toString('base64'),
+    ].join('\r\n'));
+
+    // Attachment parts
+    for (const att of attachments) {
+      const fileData = fs.readFileSync(att.filePath);
+      const ext = path.extname(att.filename).toLowerCase();
+      const mimeType = ext === '.pdf' ? 'application/pdf'
+        : ext === '.docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : ext === '.xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'application/octet-stream';
+
+      const encodedFilename = `=?UTF-8?B?${Buffer.from(att.filename, 'utf-8').toString('base64')}?=`;
+
+      parts.push([
+        `--${boundary}`,
+        `Content-Type: ${mimeType}; name="${encodedFilename}"`,
+        `Content-Disposition: attachment; filename="${encodedFilename}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        fileData.toString('base64'),
+      ].join('\r\n'));
+    }
+
+    parts.push(`--${boundary}--`);
+
+    rawMessage = [
+      `To: ${to}`,
+      `Subject: ${encodedSubject}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      parts.join('\r\n'),
+    ].join('\r\n');
+  }
 
   const encodedMessage = Buffer.from(rawMessage, 'utf-8')
     .toString('base64')
@@ -121,7 +185,10 @@ async function sendEmail(to, subject, body) {
   });
 
   console.log(`[gmail] Email enviado: ${res.data.id}`);
-  return `Email enviado correctamente a **${to}**.\nAsunto: ${subject}`;
+  const attachInfo = attachments.length > 0
+    ? `\nAdjuntos: ${attachments.map((a) => a.filename).join(', ')}`
+    : '';
+  return `Email enviado correctamente a **${to}**.\nAsunto: ${subject}${attachInfo}`;
 }
 
 /**
