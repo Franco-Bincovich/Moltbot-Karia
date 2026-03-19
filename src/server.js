@@ -58,12 +58,16 @@ app.post('/api/login', async (req, res) => {
   try {
     const passwordHash = crypto.createHash('md5').update(password).digest('hex');
 
+    console.log(`[auth] Buscando en Supabase — email: "${email.toLowerCase().trim()}" | password_hash: "${passwordHash}"`);
+
     const { data, error } = await supabase
       .from('usuarios')
       .select('id, nombre, email')
       .eq('email', email.toLowerCase().trim())
       .eq('password', passwordHash)
       .single();
+
+    console.log(`[auth] Respuesta Supabase — data: ${JSON.stringify(data)} | error: ${JSON.stringify(error)}`);
 
     if (error || !data) {
       console.log(`[auth] Login fallido para: ${email}`);
