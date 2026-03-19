@@ -422,9 +422,23 @@ app.post('/api/chat', chatLimiter, authenticateToken, upload.single('file'), val
   const { usuario_id, rol } = req.user;
 
   const message = req.body.message || '';
-  const history = req.body.history
-    ? (typeof req.body.history === 'string' ? JSON.parse(req.body.history) : req.body.history)
-    : [];
+
+  // El historial puede llegar como array (JSON body) o como string serializado (multipart/form-data).
+  // Si viene como string, necesitamos parsearlo. Un JSON malformado desde el cliente
+  // (ej: historial corrupto en sessionStorage) crashearía el request sin este try-catch.
+  let history = [];
+  if (req.body.history) {
+    if (typeof req.body.history === 'string') {
+      try {
+        history = JSON.parse(req.body.history);
+      } catch {
+        return res.status(400).json({ error: 'El campo history contiene JSON con formato incorrecto.' });
+      }
+    } else {
+      history = req.body.history;
+    }
+  }
+
   const sesionId = req.body.sesion_id || null;
 
   const hasFile = !!req.file;
