@@ -10,6 +10,7 @@
  */
 
 const { validationResult } = require('express-validator');
+const { logWarn } = require('../utils/logger');
 
 /**
  * Revisa si el request tiene errores de validación y responde con 400 si los hay.
@@ -32,7 +33,7 @@ function manejarErroresValidacion(req, res, next) {
     mensaje: e.msg,
   }));
 
-  console.warn(`[validacion] Errores en ${req.method} ${req.path}:`, listaErrores);
+  logWarn('validacion', `Errores en ${req.method} ${req.path}: ${JSON.stringify(listaErrores)}`);
 
   return res.status(400).json({
     error: 'Datos de entrada inválidos.',

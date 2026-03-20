@@ -168,17 +168,30 @@ async function createEvent(title, date, time, duration = 60, description = '', a
   const calendar = getCalendar();
   logInfo('calendar',` Creando evento: "${title}" | ${date} ${time} | ${duration}min | Invitados: ${attendees.length} | Meet: ${withMeet}`);
 
-  // Calcular hora de fin sumando duración en minutos
+  // Calcular hora de fin sumando duración en minutos.
+  // Si el evento cruza medianoche (ej: 23:00 + 120min = 01:00), la fecha de fin
+  // debe ser el día siguiente. Sin esto, Google Calendar crearía un evento que
+  // termina ANTES de empezar (01:00 del mismo día < 23:00).
   const startLocal = `${date}T${time}:00`;
   const [startH, startM] = time.split(':').map(Number);
   const totalMinutes = startH * 60 + startM + duration;
   const endH = String(Math.floor(totalMinutes / 60) % 24).padStart(2, '0');
   const endM = String(totalMinutes % 60).padStart(2, '0');
-  const endLocal = `${date}T${endH}:${endM}:00`;
 
-  // Verificar conflictos en el mismo día usando minutos desde medianoche
-  // (evita problemas de conversión de timezone)
-  const conflictos = await detectarConflictos(calendar, date, startH * 60 + startM, startH * 60 + startM + duration);
+  // Si totalMinutes >= 1440, el evento cruza medianoche → fecha de fin = día siguiente
+  let endDate = date;
+  if (totalMinutes >= 1440) {
+    const siguiente = new Date(`${date}T00:00:00-03:00`);
+    siguiente.setDate(siguiente.getDate() + Math.floor(totalMinutes / 1440));
+    endDate = siguiente.toLocaleDateString('en-CA', { timeZone: TZ });
+  }
+  const endLocal = `${endDate}T${endH}:${endM}:00`;
+
+  // Verificar conflictos: usa minutos desde medianoche para evitar problemas de timezone.
+  // finMin puede ser > 1440 si el evento cruza medianoche — detectarConflictos lo maneja.
+  const inicioMin = startH * 60 + startM;
+  const finMin = inicioMin + duration;
+  const conflictos = await detectarConflictos(calendar, date, inicioMin, finMin);
   if (conflictos.length > 0) {
     const lista = conflictos.map((ev) => {
       const s = new Date(ev.start.dateTime).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
@@ -273,17 +286,29 @@ async function deleteEvent(eventId) {
 /**
  * Detecta eventos existentes que se superponen con el rango horario dado.
  * Usa minutos desde medianoche para evitar problemas de timezone.
+ *
+ * Manejo de eventos que cruzan medianoche:
+ *   - El nuevo evento puede cruzar medianoche: finMin > 1440 (ej: 23:00 + 120min = 1500)
+ *   - Eventos existentes pueden cruzar medianoche: evFinMin < evInicioMin (ej: 23:00-01:00)
+ *   En ambos casos, se normaliza sumando 1440 al fin para que el rango sea continuo
+ *   y la comparación de solapamiento funcione correctamente.
+ *
  * @param {object} calendar - Cliente de Calendar
  * @param {string} date - Fecha en YYYY-MM-DD
- * @param {number} inicioMin - Minuto de inicio (desde medianoche)
- * @param {number} finMin - Minuto de fin (desde medianoche)
+ * @param {number} inicioMin - Minuto de inicio (desde medianoche, 0-1439)
+ * @param {number} finMin - Minuto de fin (puede ser > 1440 si cruza medianoche)
  * @returns {Promise<Array>} Eventos con conflicto
  */
 async function detectarConflictos(calendar, date, inicioMin, finMin) {
+  // Buscar eventos del día actual y del día siguiente (para cubrir eventos que cruzan medianoche)
+  const siguiente = new Date(`${date}T00:00:00-03:00`);
+  siguiente.setDate(siguiente.getDate() + 1);
+  const fechaSiguiente = siguiente.toLocaleDateString('en-CA', { timeZone: TZ });
+
   const existing = await calendar.events.list({
     calendarId: 'primary',
     timeMin: `${date}T00:00:00-03:00`,
-    timeMax: `${date}T23:59:59-03:00`,
+    timeMax: `${fechaSiguiente}T23:59:59-03:00`,
     singleEvents: true,
     orderBy: 'startTime',
   });
@@ -299,8 +324,14 @@ async function detectarConflictos(calendar, date, inicioMin, finMin) {
     });
     const [evSH, evSM] = evStartStr.split(':').map(Number);
     const [evEH, evEM] = evEndStr.split(':').map(Number);
-    const evInicioMin = evSH * 60 + evSM;
-    const evFinMin = evEH * 60 + evEM;
+    let evInicioMin = evSH * 60 + evSM;
+    let evFinMin = evEH * 60 + evEM;
+
+    // Si el evento existente cruza medianoche (ej: 23:00-01:00), su fin es menor que su inicio.
+    // Sumar 1440 (24h) para que el rango sea continuo y la comparación funcione.
+    if (evFinMin <= evInicioMin) {
+      evFinMin += 1440;
+    }
 
     // Dos rangos se superponen si: A.inicio < B.fin && A.fin > B.inicio
     return inicioMin < evFinMin && finMin > evInicioMin;

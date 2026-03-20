@@ -171,6 +171,13 @@ async function sendEmail(to, subject, body, attachmentFilenames = []) {
     throw new Error('Dirección de email inválida: contiene caracteres no permitidos.');
   }
 
+  // Defense in depth: el subject se codifica como RFC 2047 base64 más adelante,
+  // lo que neutraliza \r\n en la práctica. Esta validación previa es una segunda
+  // capa que rechaza el input antes de procesarlo, por el mismo principio que "to".
+  if (/[\r\n]/.test(subject)) {
+    throw new Error('Asunto del email inválido: contiene caracteres no permitidos.');
+  }
+
   const gmail = getGmail();
 
   // Resolver archivos adjuntos desde /tmp

@@ -72,7 +72,21 @@ function validarUrlSegura(url) {
     throw new Error(`URL de descarga bloqueada: host no permitido (${hostname}).`);
   }
 
-  // Bloquear rangos de IPs privadas: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+  // Bloquear direcciones IPv6: fc00::/7 (ULA, equivalente a redes privadas),
+  // fe80::/10 (link-local), ::1 (loopback). new URL() normaliza "[::1]" a "::1"
+  // en hostname, por lo que basta con detectar ":" para cubrir todas las variantes.
+  if (hostname.startsWith('[') || hostname.includes(':')) {
+    throw new Error(`URL de descarga bloqueada: direcciones IPv6 no permitidas (${hostname}).`);
+  }
+
+  // Bloquear IPs en formato decimal: un hostname puramente numérico como "2130706433"
+  // es interpretado por algunos stacks HTTP como 127.0.0.1 (conversión decimal→IP).
+  // Esto permite bypasear las validaciones de rangos privados que solo chequean formato dotted.
+  if (/^\d+$/.test(hostname)) {
+    throw new Error(`URL de descarga bloqueada: IPs en formato numérico no permitidas (${hostname}).`);
+  }
+
+  // Bloquear rangos de IPs privadas en formato dotted: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
   const ipPrivada = /^(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)$/;
   if (ipPrivada.test(hostname)) {
     throw new Error(`URL de descarga bloqueada: IP privada no permitida (${hostname}).`);
@@ -242,7 +256,10 @@ async function generatePresentation(topic, details) {
       const gammaUrl = statusData.gammaUrl ?? statusData.url;
 
       if (exportUrl) {
-        const safeTopic = topic.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').trim().replace(/\s+/g, '_');
+        // Truncar a 50 chars para que el filename completo no supere el límite de 255
+        // caracteres del filesystem (ext4, NTFS, APFS). El nombre final incluye el prefijo
+        // "presentacion_" (14 chars) + safeTopic (max 50) + "_" + timestamp (13) + ".pdf" (4) = ~81 chars max.
+        const safeTopic = topic.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').trim().replace(/\s+/g, '_').slice(0, 50);
         const pdfFilename = `presentacion_${safeTopic}_${Date.now()}.pdf`;
         try {
           const localPath = await downloadToTmp(exportUrl, pdfFilename);

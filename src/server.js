@@ -143,7 +143,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+// Límite explícito de 100KB para el body JSON.
+// Previene que un atacante envíe payloads gigantes (ej: history con miles de mensajes)
+// que consumirían memoria del servidor. 100KB es suficiente para mensajes de chat
+// con historial de 6 turnos (el agente trunca a 6 de todas formas).
+app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // === Rate Limiting ===
@@ -203,7 +207,11 @@ function authenticateToken(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Token requerido.' });
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    // Algoritmo explícito para prevenir ataques de "algorithm switching":
+    // sin especificarlo, un atacante podría enviar un token firmado con algorithm: "none"
+    // (sin firma) y jsonwebtoken lo aceptaría en versiones antiguas. Aunque v9+ bloquea
+    // "none" por defecto, especificar HS256 es defense-in-depth contra downgrades.
+    req.user = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     next();
   } catch {
     return res.status(401).json({ error: 'Token inválido o expirado.' });
@@ -263,11 +271,12 @@ app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, asy
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
 
-    // Generar JWT con datos del usuario, expira en 8 horas
+    // Generar JWT con datos del usuario, expira en 8 horas.
+    // Algoritmo HS256 explícito — debe coincidir con el que acepta jwt.verify().
     const token = jwt.sign(
       { usuario_id: usuario.id, email: usuario.email, nombre: usuario.nombre, rol: usuario.rol },
       process.env.JWT_SECRET,
-      { expiresIn: '8h' }
+      { algorithm: 'HS256', expiresIn: '8h' }
     );
 
     logInfo('auth', `Login exitoso: ${usuario.email} (rol: ${usuario.rol})`);

@@ -42,9 +42,15 @@ async function listFiles(query = '') {
 
   const drive = getDrive();
 
+  // Google Drive API usa una query language propia para filtrar archivos.
+  // Caracteres como comillas (', "), backslashes (\) y paréntesis () son operadores
+  // de esa query language. Sin escapar, un input como `test' or name contains '`
+  // podría alterar la lógica de la consulta (inyección de query).
+  // Se eliminan todos los caracteres especiales de la query language antes de interpolar.
   let q = 'trashed = false';
   if (query) {
-    q += ` and name contains '${query.replace(/'/g, "\\'")}'`;
+    const safeQuery = query.replace(/['"\\\(\)]/g, '');
+    q += ` and name contains '${safeQuery}'`;
   }
 
   logInfo('drive',` Listando archivos${query ? ` (búsqueda: "${query}")` : ''}...`);
