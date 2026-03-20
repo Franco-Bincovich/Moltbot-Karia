@@ -318,14 +318,13 @@ app.post('/api/reset-password', loginLimiter, validarResetPassword, manejarError
       handleSupabaseError(error, 'buscar usuario para reset');
     }
 
-    if (!usuario) {
-      return res.status(404).json({ error: 'No se encontró un usuario con ese email.' });
-    }
-
-    // Solo permitir reset si el usuario fue marcado por la migración.
-    // Esto evita que cualquiera cambie la password de otro usuario sin autorización.
-    if (!usuario.needs_password_reset) {
-      return res.status(403).json({ error: 'Este usuario no tiene un restablecimiento de contraseña pendiente.' });
+    // Respuesta unificada para prevenir enumeración de emails:
+    // Sin esto, un atacante podría distinguir "404 = email no existe" de
+    // "403 = email existe pero no necesita reset", mapeando qué emails
+    // están registrados en el sistema. Con una respuesta idéntica en ambos
+    // casos, el atacante no puede saber si el email existe o no.
+    if (!usuario || !usuario.needs_password_reset) {
+      return res.status(400).json({ error: 'No se pudo restablecer la contraseña. Verificá el email o contactá al administrador.' });
     }
 
     // Hashear con bcrypt puro (12 rounds, sin MD5 intermedio)

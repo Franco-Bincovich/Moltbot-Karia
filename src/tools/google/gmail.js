@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const { getAuthClient, isConfigured } = require('./auth');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { conReintentos } = require('../../utils/reintentos');
@@ -281,7 +282,12 @@ function buildSimpleEmail(to, encodedSubject, body) {
  *     la validación y la lectura), lo loguea y lo omite sin abortar el envío.
  */
 async function buildMultipartEmail(to, encodedSubject, body, attachments) {
-  const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  // Boundary criptográficamente seguro para separar las partes del email MIME.
+  // RFC 2046 recomienda que los boundaries sean impredecibles para evitar que
+  // un atacante que intercepte el email pueda inyectar contenido MIME adicional.
+  // Math.random() usa un PRNG predecible (V8 xoshiro128+) — crypto.randomBytes
+  // usa el generador del sistema operativo (/dev/urandom) que es impredecible.
+  const boundary = `boundary_${crypto.randomBytes(16).toString('hex')}`;
   const parts = [];
 
   // Parte de texto
