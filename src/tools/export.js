@@ -3,7 +3,8 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { logInfo } = require('../utils/logger');
+const { logInfo, logWarn } = require('../utils/logger');
+const { subirArchivo } = require('../utils/storage');
 
 const TMP_DIR = '/tmp';
 
@@ -70,7 +71,16 @@ async function generateWord(content, filename) {
   escribirArchivo(filePath, buffer, 'Word');
 
   logInfo('export',` Word generado: ${filePath} (${buffer.length} bytes)`);
-  return filePath;
+
+  // Subir a Supabase Storage y obtener URL firmada.
+  // Si Storage no está disponible, el archivo queda en /tmp como fallback.
+  const nombreArchivo = `${safeName}.docx`;
+  const urlFirmada = await subirArchivo(filePath, 'documentos', nombreArchivo);
+  if (urlFirmada) {
+    return { filePath, storageUrl: urlFirmada, filename: nombreArchivo };
+  }
+
+  return { filePath, storageUrl: null, filename: nombreArchivo };
 }
 
 /**
@@ -130,7 +140,16 @@ async function generateExcel(data, filename) {
   }
 
   logInfo('export',` Excel generado: ${filePath}`);
-  return filePath;
+
+  // Subir a Supabase Storage y obtener URL firmada.
+  // Si Storage no está disponible, el archivo queda en /tmp como fallback.
+  const nombreArchivo = `${safeName}.xlsx`;
+  const urlFirmada = await subirArchivo(filePath, 'documentos', nombreArchivo);
+  if (urlFirmada) {
+    return { filePath, storageUrl: urlFirmada, filename: nombreArchivo };
+  }
+
+  return { filePath, storageUrl: null, filename: nombreArchivo };
 }
 
 /**

@@ -449,19 +449,22 @@ async function executeTool(block, excelContext, usuarioId) {
       if (!excelContext) return 'No hay ningún archivo Excel adjunto en esta conversación.';
       return await analyzeExcel(excelContext, input.question, input.analysisType, input.personFilter || null);
 
-    // Exportación a Word → export.js (genera .docx en /tmp, retorna link de descarga)
+    // Exportación a Word → export.js (genera .docx, sube a Storage, retorna link)
     case 'export_to_word': {
-      const filePath = await generateWord(input.content, input.filename);
-      return `Archivo Word generado. Link de descarga: /download/${require('path').basename(filePath)}`;
+      const result = await generateWord(input.content, input.filename);
+      // Si hay URL de Storage, usarla directamente. Si no, usar link local como fallback.
+      const url = result.storageUrl || `/download/${result.filename}`;
+      return `Archivo Word generado. Link de descarga: ${url}`;
     }
 
-    // Exportación a Excel → export.js (genera .xlsx en /tmp, retorna link de descarga)
+    // Exportación a Excel → export.js (genera .xlsx, sube a Storage, retorna link)
     case 'export_to_excel': {
-      const filePath = await generateExcelFile(
+      const result = await generateExcelFile(
         { headers: input.headers, rows: input.rows, sheetName: input.sheetName || 'Datos' },
         input.filename
       );
-      return `Archivo Excel generado. Link de descarga: /download/${require('path').basename(filePath)}`;
+      const url = result.storageUrl || `/download/${result.filename}`;
+      return `Archivo Excel generado. Link de descarga: ${url}`;
     }
 
     // Calendar → calendar.js. days=0 devuelve solo hoy, otro valor devuelve los próximos N días

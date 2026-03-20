@@ -36,6 +36,8 @@ const mammoth = require('mammoth');
 const { limpiarArchivosTmp } = require('./utils/limpiarTmp');
 // Logger centralizado con formato estandarizado [timestamp] [NIVEL] [módulo] mensaje
 const { logInfo, logWarn, logError, logFatal } = require('./utils/logger');
+// Storage externo para archivos generados (Word, Excel, PDF) en Supabase Storage
+const { obtenerUrlFirmada } = require('./utils/storage');
 // Middlewares de validación y sanitización de inputs
 const { validarLogin, validarCrearSesion, validarChat, validarResetPassword } = require('./middlewares/validaciones');
 const { manejarErroresValidacion } = require('./middlewares/manejarErroresValidacion');
@@ -462,32 +464,37 @@ app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
 // === Descargas ===
 
 /**
- * GET /download/:filename — Sirve archivos generados desde /tmp (Word, Excel, PDF).
+ * GET /download/:filename — Descarga de archivos generados (Word, Excel, PDF).
  *
- * Requiere autenticación para evitar que usuarios no logueados o atacantes
- * descarguen archivos adivinando el nombre. Aunque los filenames incluyen
- * 128 bits de entropía (imposible de enumerar por fuerza bruta), la auth
- * agrega una segunda capa de protección contra links compartidos sin permiso.
+ * Estrategia de resolución (en orden):
+ *   1. Buscar en Supabase Storage → redirigir a URL firmada (multi-instancia)
+ *   2. Buscar en /tmp local → servir directamente (fallback single-instance)
+ *   3. Si no se encuentra en ninguno → 404
  *
- * Prevención de path traversal:
- *   Sin sanitización, un atacante podría pedir /download/../../etc/passwd
- *   y path.join('/tmp', '../../etc/passwd') resolvería a /etc/passwd,
- *   permitiendo leer cualquier archivo del servidor.
- *   Se usa path.basename() para extraer solo el nombre del archivo,
- *   descartando cualquier directorio o secuencia "../".
+ * Requiere autenticación + rate limiting + protección contra path traversal.
  */
-app.get('/download/:filename', downloadLimiter, authenticateToken, (req, res) => {
+app.get('/download/:filename', downloadLimiter, authenticateToken, async (req, res) => {
   // Sanitizar: extraer solo el nombre del archivo, sin directorios ni "../"
   const safeName = path.basename(req.params.filename);
 
-  // Si el nombre sanitizado difiere del original, el request es sospechoso
   if (safeName !== req.params.filename) {
     return res.status(400).json({ error: 'Nombre de archivo no válido.' });
   }
 
+  // Determinar el bucket según la extensión
+  const ext = safeName.split('.').pop().toLowerCase();
+  const bucket = ext === 'pdf' ? 'presentaciones' : 'documentos';
+
+  // 1. Intentar Supabase Storage primero (funciona con múltiples instancias)
+  const urlFirmada = await obtenerUrlFirmada(bucket, safeName);
+  if (urlFirmada) {
+    logInfo('download', `Redirigiendo a Storage: ${safeName}`);
+    return res.redirect(urlFirmada);
+  }
+
+  // 2. Fallback: buscar en /tmp local (single-instance o Storage no configurado)
   const filePath = path.join('/tmp', safeName);
 
-  // Verificación extra: confirmar que el path resuelto está dentro de /tmp
   if (!filePath.startsWith('/tmp/')) {
     return res.status(400).json({ error: 'Nombre de archivo no válido.' });
   }
@@ -496,10 +503,7 @@ app.get('/download/:filename', downloadLimiter, authenticateToken, (req, res) =>
     return res.status(404).json({ error: 'Archivo no encontrado.' });
   }
 
-  // Servir el archivo y eliminarlo de /tmp después de que se transmita completo.
-  // El archivo ya fue descargado por el usuario, no se necesita más en el servidor.
-  // Si la eliminación falla (ej: permisos), solo logueamos — la limpieza periódica
-  // lo atrapará después.
+  // Servir desde /tmp y eliminar después de transmitir
   res.download(filePath, () => {
     try {
       require('fs').unlinkSync(filePath);

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { conReintentos } = require('../utils/reintentos');
 const { logInfo, logWarn } = require('../utils/logger');
+const { subirArchivo } = require('../utils/storage');
 
 const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
 const BASE_URL = 'https://public-api.gamma.app/v1.0';
@@ -244,10 +245,16 @@ async function generatePresentation(topic, details) {
         const safeTopic = topic.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').trim().replace(/\s+/g, '_');
         const pdfFilename = `presentacion_${safeTopic}_${Date.now()}.pdf`;
         try {
-          await downloadToTmp(exportUrl, pdfFilename);
-          return `Presentación lista. Descargá el PDF acá: ${exportUrl}\n[PDF guardado localmente: ${pdfFilename}]`;
+          const localPath = await downloadToTmp(exportUrl, pdfFilename);
+
+          // Subir a Supabase Storage para acceso multi-instancia.
+          // Si Storage no está disponible, el archivo queda en /tmp como fallback.
+          const storageUrl = await subirArchivo(localPath, 'presentaciones', pdfFilename);
+          const downloadUrl = storageUrl || exportUrl;
+
+          return `Presentación lista. Descargá el PDF acá: ${downloadUrl}\n[PDF guardado localmente: ${pdfFilename}]`;
         } catch (dlErr) {
-          logWarn('gamma', No se pudo descargar el PDF:', dlErr.message);
+          logWarn('gamma',` No se pudo descargar el PDF: ${dlErr.message}`);
           return `Presentación lista. Descargá el PDF acá: ${exportUrl}`;
         }
       }
