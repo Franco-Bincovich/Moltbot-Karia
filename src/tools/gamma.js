@@ -37,12 +37,56 @@ async function fetchConTimeout(url, options, timeoutMs) {
 }
 
 /**
+ * Valida que una URL sea segura para hacer fetch desde el servidor.
+ *
+ * Prevención de SSRF (Server-Side Request Forgery):
+ *   Sin esta validación, si la API de Gamma devuelve una URL maliciosa
+ *   (ej: por compromiso de su infraestructura), el servidor podría:
+ *   - Acceder al metadata service de cloud (http://169.254.169.254) y robar credenciales AWS/GCP
+ *   - Escanear servicios internos (http://localhost:3000, http://10.0.0.x)
+ *   - Leer archivos locales (file:///etc/passwd)
+ *   Solo se permiten URLs HTTPS a hosts públicos.
+ *
+ * @param {string} url - URL a validar
+ * @throws {Error} Si la URL no es segura
+ */
+function validarUrlSegura(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`URL de descarga inválida: ${url}`);
+  }
+
+  // Solo HTTPS — bloquea http:, file:, ftp:, data:, etc.
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`URL de descarga no permitida: solo se acepta HTTPS (recibido: ${parsed.protocol})`);
+  }
+
+  // Bloquear hosts locales y de metadata de cloud
+  const hostname = parsed.hostname.toLowerCase();
+  const hostsBloqueados = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254', '[::1]'];
+  if (hostsBloqueados.includes(hostname)) {
+    throw new Error(`URL de descarga bloqueada: host no permitido (${hostname}).`);
+  }
+
+  // Bloquear rangos de IPs privadas: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+  const ipPrivada = /^(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)$/;
+  if (ipPrivada.test(hostname)) {
+    throw new Error(`URL de descarga bloqueada: IP privada no permitida (${hostname}).`);
+  }
+}
+
+/**
  * Descarga un archivo desde una URL y lo guarda en /tmp.
+ * Valida la URL contra SSRF antes de hacer el fetch.
  * @param {string} url - URL del archivo a descargar
  * @param {string} filename - Nombre con el que guardar el archivo
  * @returns {Promise<string>} Ruta local del archivo descargado
  */
 async function downloadToTmp(url, filename) {
+  validarUrlSegura(url);
+
   const res = await fetchConTimeout(url, {}, TIMEOUT_DESCARGA_MS);
   if (!res.ok) throw new Error(`Error descargando PDF de Gamma: HTTP ${res.status}`);
 

@@ -667,7 +667,17 @@ function formatearMarkdown(texto) {
 
   let html = escaparHtml(limpio);
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Prevención de XSS via protocolo en links markdown:
+  // Sin validación, Claude podría generar [texto](javascript:alert(1)) y el browser
+  // ejecutaría el código JS al hacer click. También bloquea data: y vbscript:.
+  // Solo se permiten http://, https:// y rutas relativas (/ruta).
+  // Si el protocolo no es seguro, se muestra solo el texto sin convertirlo a link.
+  html = html.replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (_, texto, href) => {
+    if (/^(https?:\/\/|\/)/i.test(href)) {
+      return `<a href="${href}" target="_blank" rel="noopener">${texto}</a>`;
+    }
+    return texto;
+  });
   html = html.replace(/(?<!")(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   html = convertirTablas(html);
   html = html.replace(/\n/g, '<br>');

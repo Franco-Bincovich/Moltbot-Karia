@@ -154,6 +154,15 @@ async function getUnreadEmails(limit = 10) {
 async function sendEmail(to, subject, body, attachmentFilenames = []) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
+  // Prevención de header injection:
+  // El email se construye concatenando strings en formato MIME raw (To: xxx\r\nSubject: xxx).
+  // Si el campo "to" contiene \r o \n, un atacante podría inyectar headers adicionales
+  // como Bcc: o Cc:, enviando copias ocultas del email a destinatarios no autorizados.
+  // Ejemplo de ataque: to = "user@mail.com\r\nBcc: espia@evil.com"
+  if (/[\r\n]/.test(to)) {
+    throw new Error('Dirección de email inválida: contiene caracteres no permitidos.');
+  }
+
   const gmail = getGmail();
 
   // Resolver archivos adjuntos desde /tmp

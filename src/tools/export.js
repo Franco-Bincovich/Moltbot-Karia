@@ -50,7 +50,10 @@ function escribirArchivo(filePath, buffer, tipo) {
 async function generateWord(content, filename) {
   verificarTmpDisponible();
 
-  const safeName = `${filename.replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomBytes(4).toString('hex')}`;
+  // 16 bytes = 128 bits de entropía en el sufijo hex del filename.
+  // Con 4 bytes (32 bits) un atacante podría enumerar los ~4 mil millones de combinaciones.
+  // Con 16 bytes, hay 3.4 × 10^38 combinaciones — imposible de enumerar por fuerza bruta.
+  const safeName = `${filename.replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomBytes(16).toString('hex')}`;
   const filePath = path.join(TMP_DIR, `${safeName}.docx`);
 
   const children = parseContentToParagraphs(content);
@@ -78,7 +81,8 @@ async function generateWord(content, filename) {
 async function generateExcel(data, filename) {
   verificarTmpDisponible();
 
-  const safeName = `${filename.replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomBytes(4).toString('hex')}`;
+  // 16 bytes = 128 bits de entropía — ver comentario en generateWord()
+  const safeName = `${filename.replace(/[^a-zA-Z0-9_-]/g, '_')}_${crypto.randomBytes(16).toString('hex')}`;
   const filePath = path.join(TMP_DIR, `${safeName}.xlsx`);
 
   const workbook = new ExcelJS.Workbook();

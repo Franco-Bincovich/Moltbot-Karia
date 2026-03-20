@@ -366,6 +366,11 @@ app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
 /**
  * GET /download/:filename — Sirve archivos generados desde /tmp (Word, Excel, PDF).
  *
+ * Requiere autenticación para evitar que usuarios no logueados o atacantes
+ * descarguen archivos adivinando el nombre. Aunque los filenames incluyen
+ * 128 bits de entropía (imposible de enumerar por fuerza bruta), la auth
+ * agrega una segunda capa de protección contra links compartidos sin permiso.
+ *
  * Prevención de path traversal:
  *   Sin sanitización, un atacante podría pedir /download/../../etc/passwd
  *   y path.join('/tmp', '../../etc/passwd') resolvería a /etc/passwd,
@@ -373,7 +378,7 @@ app.get('/api/sessions/:id/messages', authenticateToken, async (req, res) => {
  *   Se usa path.basename() para extraer solo el nombre del archivo,
  *   descartando cualquier directorio o secuencia "../".
  */
-app.get('/download/:filename', downloadLimiter, (req, res) => {
+app.get('/download/:filename', downloadLimiter, authenticateToken, (req, res) => {
   // Sanitizar: extraer solo el nombre del archivo, sin directorios ni "../"
   const safeName = path.basename(req.params.filename);
 
