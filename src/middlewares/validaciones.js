@@ -87,6 +87,25 @@ const validarChat = [
     }),
 ];
 
+// ─── POST /api/reset-password ─────────────────────────────────────────────────
+
+/**
+ * Valida el restablecimiento de contraseña.
+ * Requiere email válido y password de al menos 8 caracteres.
+ * 8 caracteres es el mínimo recomendado por NIST SP 800-63B para passwords de usuario.
+ */
+const validarResetPassword = [
+  body('email')
+    .isEmail().withMessage('El email no tiene un formato válido.')
+    .normalizeEmail()
+    .isLength({ max: 100 }).withMessage('El email no puede superar los 100 caracteres.'),
+
+  body('password')
+    .isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.')
+    .isLength({ max: 100 }).withMessage('La contraseña no puede superar los 100 caracteres.')
+    .trim(),
+];
+
 // ─── Exportaciones ────────────────────────────────────────────────────────────
 
-module.exports = { validarLogin, validarCrearSesion, validarChat };
+module.exports = { validarLogin, validarCrearSesion, validarChat, validarResetPassword };

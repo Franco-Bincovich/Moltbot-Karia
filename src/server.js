@@ -37,7 +37,7 @@ const { limpiarArchivosTmp } = require('./utils/limpiarTmp');
 // Logger centralizado con formato estandarizado [timestamp] [NIVEL] [módulo] mensaje
 const { logInfo, logWarn, logError, logFatal } = require('./utils/logger');
 // Middlewares de validación y sanitización de inputs
-const { validarLogin, validarCrearSesion, validarChat } = require('./middlewares/validaciones');
+const { validarLogin, validarCrearSesion, validarChat, validarResetPassword } = require('./middlewares/validaciones');
 const { manejarErroresValidacion } = require('./middlewares/manejarErroresValidacion');
 
 // === Inicialización ===
@@ -273,6 +273,68 @@ app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, asy
   } catch (err) {
     logError('auth', `Error en login: ${err.message}`);
     res.status(500).json({ error: 'Error al iniciar sesión. Intentá de nuevo.' });
+  }
+});
+
+/**
+ * POST /api/reset-password — Restablece la contraseña de un usuario marcado para reset.
+ * Recibe: { email: string, password: string (min 8 chars) }
+ * Devuelve: { message: string } con confirmación de éxito
+ * Errores: 400 validación, 403 si el usuario no requiere reset, 404 si no existe
+ *
+ * No requiere JWT porque el usuario no puede loguearse mientras tiene
+ * needs_password_reset: true. Se protege con loginLimiter (10 intentos/15min)
+ * para prevenir fuerza bruta contra emails.
+ *
+ * La nueva password se hashea con bcrypt puro (12 rounds, sin paso MD5).
+ * 12 rounds es el estándar actual — cada round duplica el tiempo de cómputo,
+ * haciendo inviable un ataque de fuerza bruta contra el hash.
+ */
+app.post('/api/reset-password', loginLimiter, validarResetPassword, manejarErroresValidacion, async (req, res) => {
+  if (supabaseNoDisponible(res)) return;
+
+  const { email, password } = req.body;
+
+  try {
+    // Buscar el usuario por email
+    const { data: usuario, error } = await supabase
+      .from('usuarios')
+      .select('id, email, needs_password_reset')
+      .eq('email', email)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      handleSupabaseError(error, 'buscar usuario para reset');
+    }
+
+    if (!usuario) {
+      return res.status(404).json({ error: 'No se encontró un usuario con ese email.' });
+    }
+
+    // Solo permitir reset si el usuario fue marcado por la migración.
+    // Esto evita que cualquiera cambie la password de otro usuario sin autorización.
+    if (!usuario.needs_password_reset) {
+      return res.status(403).json({ error: 'Este usuario no tiene un restablecimiento de contraseña pendiente.' });
+    }
+
+    // Hashear con bcrypt puro (12 rounds, sin MD5 intermedio)
+    const nuevoHash = await bcrypt.hash(password, 12);
+
+    // Actualizar password y limpiar el flag de reset
+    const { error: updateError } = await supabase
+      .from('usuarios')
+      .update({ password_hash: nuevoHash, needs_password_reset: false })
+      .eq('id', usuario.id);
+
+    if (updateError) {
+      handleSupabaseError(updateError, 'actualizar contraseña');
+    }
+
+    logInfo('auth', `Password restablecida: ${usuario.email}`);
+    res.json({ message: 'Contraseña restablecida correctamente. Ya podés iniciar sesión.' });
+  } catch (err) {
+    logError('auth', `Error en reset-password: ${err.message}`);
+    res.status(500).json({ error: 'Error al restablecer la contraseña. Intentá de nuevo.' });
   }
 });
 
