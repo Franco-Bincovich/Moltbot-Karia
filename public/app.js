@@ -657,6 +657,19 @@ function obtenerIconoArchivo(ext) {
  * @returns {string} HTML sanitizado
  */
 function formatearMarkdown(texto) {
+  // Protección contra ReDoS (Regular Expression Denial of Service):
+  // Algunos regex de esta función usan patrones como [^\n]* que pueden
+  // causar backtracking catastrófico en el motor de regex cuando el input
+  // es una string muy larga sin newlines. Un atacante (o una respuesta
+  // inusual de Claude) podría generar un texto de 100KB+ que congele
+  // el browser del usuario durante segundos o minutos.
+  // Truncar a 10000 caracteres elimina este riesgo sin afectar respuestas
+  // normales del agente (raramente superan los 5000 caracteres).
+  const MAX_LARGO = 10_000;
+  if (texto.length > MAX_LARGO) {
+    texto = texto.slice(0, MAX_LARGO) + '\n\n[Respuesta truncada por longitud]';
+  }
+
   const linksDescarga = [];
   const PLACEHOLDER   = '___DL___';
 

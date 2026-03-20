@@ -9,6 +9,7 @@ const { getUnreadEmails, sendEmail, searchEmails } = require('./tools/google/gma
 const { listFiles, uploadFile } = require('./tools/google/drive');
 const { buscarContactosGmail } = require('./tools/google/contactos_gmail');
 const { logInfo, logWarn, logError } = require('./utils/logger');
+const { CircuitBreaker } = require('./utils/circuitBreaker');
 
 const client = new Anthropic();
 
@@ -16,6 +17,13 @@ const client = new Anthropic();
 
 // 60 segundos para cada llamada a la API de Claude (incluye tool-use loop)
 const TIMEOUT_CLAUDE_MS = 60_000;
+
+// === Circuit Breaker ===
+
+// Protege las llamadas a Claude API. Si falla 5 veces consecutivas (ej: API caída,
+// rate limit sostenido), deja de intentar por 30 segundos y rechaza rápido.
+// Esto libera los slots de la cola para cuando el servicio se recupere.
+const cbAnthropic = new CircuitBreaker('anthropic', { umbralFallos: 5, cooldownMs: 30_000 });
 
 // === System prompt ===
 //
@@ -644,16 +652,18 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
 
   logInfo('agent', `Contexto: ${messages.length} turnos | Excel: ${!!excelContext} | Word: ${!!wordContext} | Rol: ${userRol} | Tools: ${toolsActivas.length}`);
 
-  // Primera llamada a Claude (timeout 60s)
+  // Primera llamada a Claude (timeout 60s, protegida por circuit breaker)
   let response;
   try {
-    response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: systemPrompt,
-      tools: toolsActivas,
-      messages,
-    }, { timeout: TIMEOUT_CLAUDE_MS });
+    response = await cbAnthropic.ejecutar(() =>
+      client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: systemPrompt,
+        tools: toolsActivas,
+        messages,
+      }, { timeout: TIMEOUT_CLAUDE_MS })
+    );
   } catch (err) {
     if (err.name === 'APIConnectionTimeoutError' || err.message?.includes('timeout')) {
       throw new Error('El agente tardó demasiado en responder. Por favor intentá de nuevo.');
@@ -688,15 +698,17 @@ async function handleChat(userMessage, history, excelContext = null, usuarioId =
 
     messages.push({ role: 'user', content: resultadosTools });
 
-    // Nueva llamada a Claude con los resultados de las herramientas (timeout 60s)
+    // Nueva llamada a Claude con los resultados de las herramientas (timeout 60s, circuit breaker)
     try {
-      response = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
-        system: systemPrompt,
-        tools: toolsActivas,
-        messages,
-      }, { timeout: TIMEOUT_CLAUDE_MS });
+      response = await cbAnthropic.ejecutar(() =>
+        client.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          system: systemPrompt,
+          tools: toolsActivas,
+          messages,
+        }, { timeout: TIMEOUT_CLAUDE_MS })
+      );
     } catch (err) {
       if (err.name === 'APIConnectionTimeoutError' || err.message?.includes('timeout')) {
         throw new Error('El agente tardó demasiado en responder. Por favor intentá de nuevo.');

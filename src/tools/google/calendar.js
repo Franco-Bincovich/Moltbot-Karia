@@ -1,6 +1,14 @@
 const { google } = require('googleapis');
 const { getAuthClient, isConfigured } = require('./auth');
 const { conReintentos } = require('../../utils/reintentos');
+const { logInfo, logWarn } = require('../../utils/logger');
+const { CircuitBreaker } = require('../../utils/circuitBreaker');
+
+// === Circuit Breaker ===
+
+// Comparte un breaker para todas las operaciones de Calendar.
+// Si Calendar falla 5 veces consecutivas, deja de intentar por 30 segundos.
+const cbCalendar = new CircuitBreaker('calendar', { umbralFallos: 5, cooldownMs: 30_000 });
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 const TZ = 'America/Argentina/Buenos_Aires';
@@ -78,9 +86,9 @@ async function getEvents(days = 7) {
   const timeMin = `${hoy}T00:00:00-03:00`;
   const timeMax = `${fechaFin}T23:59:59-03:00`;
 
-  console.log(`[calendar] Buscando eventos de los próximos ${days} días (${timeMin} → ${timeMax})...`);
+  logInfo('calendar',` Buscando eventos de los próximos ${days} días (${timeMin} → ${timeMax})...`);
 
-  const res = await calendar.events.list({
+  const res = await cbCalendar.ejecutar(() => calendar.events.list({
     calendarId: 'primary',
     timeMin,
     timeMax,
@@ -88,13 +96,13 @@ async function getEvents(days = 7) {
     maxResults: 50,
     singleEvents: true,
     orderBy: 'startTime',
-  });
+  }));
 
   const events = res.data.items || [];
   if (events.length === 0) return `No hay eventos en los próximos ${days} días.`;
 
   const lineas = events.map((ev) => formatearEvento(ev, true));
-  console.log(`[calendar] ${events.length} eventos encontrados.`);
+  logInfo('calendar',` ${events.length} eventos encontrados.`);
   return `Eventos de los próximos ${days} días (${events.length}):\n\n${lineas.join('\n')}`;
 }
 
@@ -111,9 +119,9 @@ async function getTodayEvents() {
   const timeMin = `${hoy}T00:00:00-03:00`;
   const timeMax = `${hoy}T23:59:59-03:00`;
 
-  console.log(`[calendar] Buscando eventos de hoy (${hoy})...`);
+  logInfo('calendar',` Buscando eventos de hoy (${hoy})...`);
 
-  const res = await calendar.events.list({
+  const res = await cbCalendar.ejecutar(() => calendar.events.list({
     calendarId: 'primary',
     timeMin,
     timeMax,
@@ -121,13 +129,13 @@ async function getTodayEvents() {
     maxResults: 50,
     singleEvents: true,
     orderBy: 'startTime',
-  });
+  }));
 
   const events = res.data.items || [];
   if (events.length === 0) return 'No hay eventos para hoy.';
 
   const lineas = events.map((ev) => formatearEvento(ev, false));
-  console.log(`[calendar] ${events.length} eventos hoy.`);
+  logInfo('calendar',` ${events.length} eventos hoy.`);
   return `Eventos de hoy (${events.length}):\n\n${lineas.join('\n')}`;
 }
 
@@ -158,7 +166,7 @@ async function createEvent(title, date, time, duration = 60, description = '', a
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const calendar = getCalendar();
-  console.log(`[calendar] Creando evento: "${title}" | ${date} ${time} | ${duration}min | Invitados: ${attendees.length} | Meet: ${withMeet}`);
+  logInfo('calendar',` Creando evento: "${title}" | ${date} ${time} | ${duration}min | Invitados: ${attendees.length} | Meet: ${withMeet}`);
 
   // Calcular hora de fin sumando duración en minutos
   const startLocal = `${date}T${time}:00`;
@@ -204,7 +212,8 @@ async function createEvent(title, date, time, duration = 60, description = '', a
 
   // Reintentos en la creación porque puede fallar por errores de red o rate limits de Calendar API.
   // No se reintenta en errores de autenticación o datos inválidos (esos se propagan directo).
-  const res = await conReintentos(
+  // Circuit breaker envuelve los reintentos: si los 3 intentos fallan, cuenta como 1 fallo.
+  const res = await cbCalendar.ejecutar(() => conReintentos(
     () => calendar.events.insert({
       calendarId: 'primary',
       requestBody: eventBody,
@@ -215,13 +224,13 @@ async function createEvent(title, date, time, duration = 60, description = '', a
       intentos: 3,
       esperaMs: 1000,
       onReintento: (err, intento, espera) => {
-        console.warn(`[calendar] Reintento ${intento} de creación de evento "${title}" (espera ${espera}ms): ${err.message}`);
+        logWarn('calendar',` Reintento ${intento} de creación de evento "${title}" (espera ${espera}ms): ${err.message}`);
       },
     }
-  );
+  ));
 
   const evento = res.data;
-  console.log(`[calendar] Evento creado: ${evento.id}`);
+  logInfo('calendar',` Evento creado: ${evento.id}`);
 
   let respuesta = `Evento creado: **${evento.summary}**\nFecha: ${date} a las ${time}\nDuración: ${duration} minutos\nID: ${evento.id}`;
   if (attendees.length > 0) respuesta += `\nInvitados: ${attendees.join(', ')}`;
@@ -244,7 +253,7 @@ async function deleteEvent(eventId) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const calendar = getCalendar();
-  console.log(`[calendar] Eliminando evento: ${eventId}`);
+  logInfo('calendar',` Eliminando evento: ${eventId}`);
 
   let nombreEvento = eventId;
   try {
@@ -255,7 +264,7 @@ async function deleteEvent(eventId) {
   }
 
   await calendar.events.delete({ calendarId: 'primary', eventId });
-  console.log(`[calendar] Evento eliminado: ${eventId}`);
+  logInfo('calendar',` Evento eliminado: ${eventId}`);
   return `Evento eliminado: **${nombreEvento}**`;
 }
 

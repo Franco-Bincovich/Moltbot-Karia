@@ -1,5 +1,6 @@
 const xlsx = require('xlsx');
 const Anthropic = require('@anthropic-ai/sdk');
+const { logInfo } = require('../utils/logger');
 
 const client = new Anthropic();
 
@@ -181,8 +182,8 @@ async function analyzeExcel(excelData, question, analysisType, personFilter = nu
 
   const userMessage = `${typeHint}\n\nDatos del archivo Excel:\n\n${filteredData}\n\n---\n\nPregunta o pedido: ${question}`.trim();
 
-  console.log(`[excel] Analizando Excel. Tipo: ${analysisType} | Persona: ${personFilter || 'todas'} | Pregunta: "${question}"`);
-  console.log(`[excel] Tamaño de datos original: ${excelData.length} chars | Enviado: ${filteredData.length} chars`);
+  logInfo('excel',` Analizando Excel. Tipo: ${analysisType} | Persona: ${personFilter || 'todas'} | Pregunta: "${question}"`);
+  logInfo('excel',` Tamaño de datos original: ${excelData.length} chars | Enviado: ${filteredData.length} chars`);
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',

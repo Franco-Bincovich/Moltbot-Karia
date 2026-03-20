@@ -14,6 +14,7 @@
 
 const { google } = require('googleapis');
 const { getAuthClient } = require('./auth');
+const { logInfo, logWarn, logError } = require('../../utils/logger');
 
 /**
  * Normaliza un resultado de People API al formato interno de contacto:
@@ -54,11 +55,11 @@ async function buscarContactosGmail(query) {
   // Verificar que el cliente OAuth2 esté disponible
   const auth = getAuthClient();
   if (!auth) {
-    console.warn('[contactos-gmail] Cliente OAuth2 no disponible. Configurá las credenciales de Google en .env');
+    logWarn('contactos-gmail', Cliente OAuth2 no disponible. Configurá las credenciales de Google en .env');
     return { found: false };
   }
 
-  console.log(`[contactos-gmail] Buscando en People API: "${query}"`);
+  logInfo('contactos-gmail',` Buscando en People API: "${query}"`);
 
   try {
     const people = google.people({ version: 'v1', auth });
@@ -78,20 +79,20 @@ async function buscarContactosGmail(query) {
       .filter(Boolean);
 
     if (contactos.length === 0) {
-      console.log(`[contactos-gmail] Sin resultados en People API para "${query}"`);
+      logInfo('contactos-gmail',` Sin resultados en People API para "${query}"`);
       return { found: false };
     }
 
     if (contactos.length === 1) {
-      console.log(`[contactos-gmail] Contacto único: ${contactos[0].nombre} <${contactos[0].email}>`);
+      logInfo('contactos-gmail',` Contacto único: ${contactos[0].nombre} <${contactos[0].email}>`);
       return { found: true, unique: true, contact: contactos[0], fuente: 'Gmail' };
     }
 
-    console.log(`[contactos-gmail] ${contactos.length} contactos encontrados para "${query}"`);
+    logInfo('contactos-gmail',` ${contactos.length} contactos encontrados para "${query}"`);
     return { found: true, unique: false, contacts: contactos, fuente: 'Gmail' };
 
   } catch (err) {
-    console.error('[contactos-gmail] Error al consultar People API:', err.message);
+    logError('contactos-gmail', Error al consultar People API:', err.message);
     // Si la API no está habilitada o hay un error de permisos, devolvemos not found
     // para no interrumpir el flujo del agente
     return { found: false };

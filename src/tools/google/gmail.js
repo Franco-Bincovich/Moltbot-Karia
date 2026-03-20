@@ -3,6 +3,8 @@ const { getAuthClient, isConfigured } = require('./auth');
 const fs = require('fs');
 const path = require('path');
 const { conReintentos } = require('../../utils/reintentos');
+const { logInfo, logWarn } = require('../../utils/logger');
+const { CircuitBreaker } = require('../../utils/circuitBreaker');
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
@@ -10,6 +12,12 @@ const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las c
 
 // 15 segundos para todas las operaciones de Gmail (lectura, envío, búsqueda)
 const TIMEOUT_MS = 15_000;
+
+// === Circuit Breaker ===
+
+// Comparte un breaker para todas las operaciones de Gmail.
+// Si Gmail falla 5 veces consecutivas, deja de intentar por 30 segundos.
+const cbGmail = new CircuitBreaker('gmail', { umbralFallos: 5, cooldownMs: 30_000 });
 
 /** Crea y retorna el cliente de Gmail autenticado con timeout configurado. */
 function getGmail() {
@@ -119,19 +127,19 @@ async function getUnreadEmails(limit = 10) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const gmail = getGmail();
-  console.log(`[gmail] Buscando últimos ${limit} emails no leídos...`);
+  logInfo('gmail',` Buscando últimos ${limit} emails no leídos...`);
 
-  const res = await gmail.users.messages.list({
+  const res = await cbGmail.ejecutar(() => gmail.users.messages.list({
     userId: 'me',
     q: 'is:unread',
     maxResults: limit,
-  });
+  }));
 
   const messages = res.data.messages || [];
   if (messages.length === 0) return 'No hay emails no leídos.';
 
   const entries = await fetchEmailEntries(gmail, messages);
-  console.log(`[gmail] ${entries.length} emails no leídos encontrados.`);
+  logInfo('gmail',` ${entries.length} emails no leídos encontrados.`);
   return `Emails no leídos (${entries.length}):\n\n${entries.join('\n\n')}`;
 }
 
@@ -172,11 +180,11 @@ async function sendEmail(to, subject, body, attachmentFilenames = []) {
     if (fs.existsSync(filePath)) {
       attachments.push({ filename, filePath });
     } else {
-      console.warn(`[gmail] Adjunto no encontrado: ${filePath}`);
+      logWarn('gmail',` Adjunto no encontrado: ${filePath}`);
     }
   }
 
-  console.log(`[gmail] Enviando email a ${to} | Asunto: "${subject}" | Adjuntos: ${attachments.length}`);
+  logInfo('gmail',` Enviando email a ${to} | Asunto: "${subject}" | Adjuntos: ${attachments.length}`);
 
   const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
   const rawMessage = attachments.length === 0
@@ -191,18 +199,20 @@ async function sendEmail(to, subject, body, attachmentFilenames = []) {
 
   // Reintentos en el envío porque puede fallar por errores de red o rate limits de Gmail API.
   // No se reintenta en errores de autenticación o datos inválidos (esos se propagan directo).
-  const res = await conReintentos(
+  // El circuit breaker envuelve los reintentos: si los 3 intentos fallan, cuenta como 1 fallo
+  // para el breaker (no 3), porque conReintentos lanza solo el último error.
+  const res = await cbGmail.ejecutar(() => conReintentos(
     () => gmail.users.messages.send({ userId: 'me', requestBody: { raw: encodedMessage } }),
     {
       intentos: 3,
       esperaMs: 1000,
       onReintento: (err, intento, espera) => {
-        console.warn(`[gmail] Reintento ${intento} de envío a ${to} (espera ${espera}ms): ${err.message}`);
+        logWarn('gmail',` Reintento ${intento} de envío a ${to} (espera ${espera}ms): ${err.message}`);
       },
     }
-  );
+  ));
 
-  console.log(`[gmail] Email enviado: ${res.data.id}`);
+  logInfo('gmail',` Email enviado: ${res.data.id}`);
   const adjuntosInfo = attachments.length > 0
     ? `\nAdjuntos: ${attachments.map((a) => a.filename).join(', ')}`
     : '';
@@ -219,19 +229,19 @@ async function searchEmails(query) {
   if (!isConfigured()) return NOT_CONFIGURED;
 
   const gmail = getGmail();
-  console.log(`[gmail] Buscando emails: "${query}"`);
+  logInfo('gmail',` Buscando emails: "${query}"`);
 
-  const res = await gmail.users.messages.list({
+  const res = await cbGmail.ejecutar(() => gmail.users.messages.list({
     userId: 'me',
     q: query,
     maxResults: 10,
-  });
+  }));
 
   const messages = res.data.messages || [];
   if (messages.length === 0) return `No se encontraron emails para: "${query}"`;
 
   const entries = await fetchEmailEntries(gmail, messages);
-  console.log(`[gmail] ${entries.length} emails encontrados.`);
+  logInfo('gmail',` ${entries.length} emails encontrados.`);
   return `Resultados para "${query}" (${entries.length}):\n\n${entries.join('\n\n')}`;
 }
 
@@ -286,7 +296,7 @@ async function buildMultipartEmail(to, encodedSubject, body, attachments) {
       // El archivo pudo haber sido eliminado por la limpieza periódica de /tmp
       // entre la validación de existencia en sendEmail y este punto de lectura.
       // Logueamos y continuamos con los demás adjuntos.
-      console.warn(`[gmail] No se pudo leer adjunto "${att.filename}": ${err.message}`);
+      logWarn('gmail',` No se pudo leer adjunto "${att.filename}": ${err.message}`);
       return null;
     }
   });

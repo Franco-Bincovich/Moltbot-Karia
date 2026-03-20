@@ -3,6 +3,7 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { logInfo } = require('../utils/logger');
 
 const TMP_DIR = '/tmp';
 
@@ -68,7 +69,7 @@ async function generateWord(content, filename) {
   const buffer = await Packer.toBuffer(doc);
   escribirArchivo(filePath, buffer, 'Word');
 
-  console.log(`[export] Word generado: ${filePath} (${buffer.length} bytes)`);
+  logInfo('export',` Word generado: ${filePath} (${buffer.length} bytes)`);
   return filePath;
 }
 
@@ -128,7 +129,7 @@ async function generateExcel(data, filename) {
     throw new Error(`No se pudo crear el archivo Excel "${nombre}": ${err.message}`);
   }
 
-  console.log(`[export] Excel generado: ${filePath}`);
+  logInfo('export',` Excel generado: ${filePath}`);
   return filePath;
 }
 

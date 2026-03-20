@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { conReintentos } = require('../utils/reintentos');
+const { logInfo, logWarn } = require('../utils/logger');
 
 const GAMMA_API_KEY = process.env.GAMMA_API_KEY;
 const BASE_URL = 'https://public-api.gamma.app/v1.0';
@@ -110,7 +111,7 @@ async function downloadToTmp(url, filename) {
     throw new Error(`No se pudo guardar el PDF "${filename}": ${err.message}`);
   }
 
-  console.log(`[gamma] PDF descargado: ${filePath} (${buffer.length} bytes)`);
+  logInfo('gamma',` PDF descargado: ${filePath} (${buffer.length} bytes)`);
   return filePath;
 }
 
@@ -159,7 +160,7 @@ async function generatePresentation(topic, details) {
 
   // Paso 1: Crear la generación (timeout 30s, hasta 3 reintentos)
   // Reintentos porque la API de Gamma puede devolver errores de red o 5xx transitorios
-  console.log(`[gamma] Creando presentación: "${topic}"`);
+  logInfo('gamma',` Creando presentación: "${topic}"`);
   const createRes = await conReintentos(
     async () => {
       const res = await fetchConTimeout(`${BASE_URL}/generations`, {
@@ -189,17 +190,17 @@ async function generatePresentation(topic, details) {
       intentos: 3,
       esperaMs: 2000,
       onReintento: (err, intento, espera) => {
-        console.warn(`[gamma] Reintento ${intento} de creación (espera ${espera}ms): ${err.message}`);
+        logWarn('gamma',` Reintento ${intento} de creación (espera ${espera}ms): ${err.message}`);
       },
     }
   );
 
   const createData = await createRes.json();
   const generationId = createData.generationId ?? createData.id;
-  console.log(`[gamma] generationId: ${generationId}`);
+  logInfo('gamma',` generationId: ${generationId}`);
 
   if (!generationId) {
-    console.warn('[gamma] No se recibió generationId. Respuesta:', JSON.stringify(createData));
+    logWarn('gamma', No se recibió generationId. Respuesta:', JSON.stringify(createData));
     if (createData.exportUrl) return `Presentación lista. Descargá el PDF acá: ${createData.exportUrl}`;
     if (createData.gammaUrl ?? createData.url) {
       return `Presentación creada. Accedela acá: ${createData.gammaUrl ?? createData.url}`;
@@ -212,7 +213,7 @@ async function generatePresentation(topic, details) {
   for (let i = 0; i < maxAttempts; i++) {
     // Verificar timeout global antes de cada intento
     if (Date.now() - inicioGlobal > TIMEOUT_GLOBAL_MS) {
-      console.warn(`[gamma] Timeout global alcanzado (${TIMEOUT_GLOBAL_MS / 1000}s)`);
+      logWarn('gamma',` Timeout global alcanzado (${TIMEOUT_GLOBAL_MS / 1000}s)`);
       return 'La generación de la presentación está tomando más tiempo del esperado. Intentalo de nuevo en unos minutos.';
     }
 
@@ -224,18 +225,18 @@ async function generatePresentation(topic, details) {
         headers: { 'X-API-KEY': GAMMA_API_KEY },
       }, TIMEOUT_POLLING_MS);
     } catch (err) {
-      console.warn(`[gamma] Polling intento ${i + 1} falló: ${err.message}`);
+      logWarn('gamma',` Polling intento ${i + 1} falló: ${err.message}`);
       continue;
     }
 
-    console.log(`[gamma] Polling intento ${i + 1}: HTTP ${statusRes.status}`);
+    logInfo('gamma',` Polling intento ${i + 1}: HTTP ${statusRes.status}`);
     if (!statusRes.ok) continue;
 
     const statusData = await statusRes.json();
-    console.log(`[gamma] status: ${statusData.status}`);
+    logInfo('gamma',` status: ${statusData.status}`);
 
     if (statusData.status === 'completed') {
-      console.log('[gamma] Respuesta completa al completarse:', JSON.stringify(statusData));
+      logInfo('gamma', Respuesta completa al completarse:', JSON.stringify(statusData));
       const exportUrl = statusData.exportUrl;
       const gammaUrl = statusData.gammaUrl ?? statusData.url;
 
@@ -246,12 +247,12 @@ async function generatePresentation(topic, details) {
           await downloadToTmp(exportUrl, pdfFilename);
           return `Presentación lista. Descargá el PDF acá: ${exportUrl}\n[PDF guardado localmente: ${pdfFilename}]`;
         } catch (dlErr) {
-          console.warn('[gamma] No se pudo descargar el PDF:', dlErr.message);
+          logWarn('gamma', No se pudo descargar el PDF:', dlErr.message);
           return `Presentación lista. Descargá el PDF acá: ${exportUrl}`;
         }
       }
       if (gammaUrl) return `Presentación creada. Accedela acá: ${gammaUrl}`;
-      console.warn('[gamma] completed sin ninguna URL disponible.');
+      logWarn('gamma', completed sin ninguna URL disponible.');
     }
 
     if (statusData.status === 'failed') {

@@ -2,6 +2,14 @@ const { google } = require('googleapis');
 const { Readable } = require('stream');
 const { getAuthClient, isConfigured } = require('./auth');
 const { conReintentos } = require('../../utils/reintentos');
+const { logInfo, logWarn } = require('../../utils/logger');
+const { CircuitBreaker } = require('../../utils/circuitBreaker');
+
+// === Circuit Breaker ===
+
+// Comparte un breaker para todas las operaciones de Drive.
+// Si Drive falla 5 veces consecutivas, deja de intentar por 30 segundos.
+const cbDrive = new CircuitBreaker('drive', { umbralFallos: 5, cooldownMs: 30_000 });
 
 const NOT_CONFIGURED = 'Integración con Google no configurada. Configurá las credenciales de Google en el archivo .env.';
 
@@ -39,14 +47,14 @@ async function listFiles(query = '') {
     q += ` and name contains '${query.replace(/'/g, "\\'")}'`;
   }
 
-  console.log(`[drive] Listando archivos${query ? ` (búsqueda: "${query}")` : ''}...`);
+  logInfo('drive',` Listando archivos${query ? ` (búsqueda: "${query}")` : ''}...`);
 
-  const res = await drive.files.list({
+  const res = await cbDrive.ejecutar(() => drive.files.list({
     q,
     pageSize: 20,
     fields: 'files(id, name, mimeType, modifiedTime, size, webViewLink)',
     orderBy: 'modifiedTime desc',
-  });
+  }));
 
   const files = res.data.files || [];
 
@@ -65,7 +73,7 @@ async function listFiles(query = '') {
     return `- **${f.name}** | ${type}${size ? ` | ${size}` : ''} | Modificado: ${date}\n  ID: ${f.id}${f.webViewLink ? ` | [Abrir](${f.webViewLink})` : ''}`;
   });
 
-  console.log(`[drive] ${files.length} archivos encontrados.`);
+  logInfo('drive',` ${files.length} archivos encontrados.`);
   return `Archivos en Drive (${files.length}):\n\n${formatted.join('\n\n')}`;
 }
 
@@ -79,7 +87,7 @@ async function getFile(fileId) {
 
   const drive = getDrive();
 
-  console.log(`[drive] Obteniendo archivo: ${fileId}`);
+  logInfo('drive',` Obteniendo archivo: ${fileId}`);
 
   // Primero obtener metadata para saber el tipo
   const meta = await drive.files.get({
@@ -95,7 +103,7 @@ async function getFile(fileId) {
       fileId,
       mimeType: 'text/plain',
     });
-    console.log(`[drive] Google Doc exportado: "${name}"`);
+    logInfo('drive',` Google Doc exportado: "${name}"`);
     return `**${name}** (Google Doc):\n\n${res.data}`;
   }
 
@@ -105,7 +113,7 @@ async function getFile(fileId) {
       fileId,
       mimeType: 'text/csv',
     });
-    console.log(`[drive] Google Sheet exportado: "${name}"`);
+    logInfo('drive',` Google Sheet exportado: "${name}"`);
     return `**${name}** (Google Sheet):\n\n${res.data}`;
   }
 
@@ -115,7 +123,7 @@ async function getFile(fileId) {
       fileId,
       alt: 'media',
     });
-    console.log(`[drive] Archivo descargado: "${name}"`);
+    logInfo('drive',` Archivo descargado: "${name}"`);
     return `**${name}**:\n\n${res.data}`;
   }
 
@@ -135,12 +143,13 @@ async function uploadFile(name, content, mimeType = 'text/plain') {
   // Usar cliente con timeout extendido (30s) para subidas
   const drive = getDriveUpload();
 
-  console.log(`[drive] Subiendo archivo: "${name}" (${mimeType})`);
+  logInfo('drive',` Subiendo archivo: "${name}" (${mimeType})`);
 
   // Reintentos en la subida porque puede fallar por errores de red o rate limits de Drive API.
   // El stream se recrea en cada intento porque un Readable consumido no se puede reutilizar.
   // No se reintenta en errores de autenticación o permisos (esos se propagan directo).
-  const res = await conReintentos(
+  // Circuit breaker envuelve los reintentos: si los 3 intentos fallan, cuenta como 1 fallo.
+  const res = await cbDrive.ejecutar(() => conReintentos(
     () => {
       const stream = new Readable();
       stream.push(content);
@@ -155,13 +164,13 @@ async function uploadFile(name, content, mimeType = 'text/plain') {
       intentos: 3,
       esperaMs: 2000,
       onReintento: (err, intento, espera) => {
-        console.warn(`[drive] Reintento ${intento} de subida de "${name}" (espera ${espera}ms): ${err.message}`);
+        logWarn('drive',` Reintento ${intento} de subida de "${name}" (espera ${espera}ms): ${err.message}`);
       },
     }
-  );
+  ));
 
   const file = res.data;
-  console.log(`[drive] Archivo subido: ${file.id}`);
+  logInfo('drive',` Archivo subido: ${file.id}`);
 
   return `Archivo guardado en Drive: **${file.name}**\nID: ${file.id}${file.webViewLink ? `\nLink: ${file.webViewLink}` : ''}`;
 }

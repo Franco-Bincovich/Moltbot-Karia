@@ -1,4 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const { logInfo, logWarn } = require('../utils/logger');
 
 const client = new Anthropic();
 
@@ -40,7 +41,7 @@ async function searchCompetitors(query) {
     searchQuery = `Buscá precios actuales de "${query}" en tiendas de electrodomésticos de Córdoba Argentina. Incluí la URL de cada resultado.`;
   }
 
-  console.log(`[search] Búsqueda web iniciada: "${query}" | Tiendas detectadas: ${mentionedStores.length > 0 ? mentionedStores.join(', ') : 'ninguna (libre)'}`);
+  logInfo('search',` Búsqueda web iniciada: "${query}" | Tiendas detectadas: ${mentionedStores.length > 0 ? mentionedStores.join(', ') : 'ninguna (libre)'}`);
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
@@ -61,7 +62,7 @@ async function searchCompetitors(query) {
   let result = textBlocks.map((b) => b.text).join('\n');
 
   if (!result.trim()) {
-    console.warn('[search] Respuesta vacía de Claude web_search');
+    logWarn('search', Respuesta vacía de Claude web_search');
 
     // Si stop_reason es tool_use, necesitamos continuar el loop
     if (response.stop_reason === 'tool_use') {
@@ -77,7 +78,7 @@ async function searchCompetitors(query) {
     result = result.slice(0, MAX_CHARS) + '\n[Resultados truncados]';
   }
 
-  console.log(`[search] OK (${result.length} chars). Primeros 300: ${result.slice(0, 300)}`);
+  logInfo('search',` OK (${result.length} chars). Primeros 300: ${result.slice(0, 300)}`);
   return result;
 }
 
@@ -130,7 +131,7 @@ async function continueSearchLoop(initialResponse, messages) {
   const textBlocks = response.content.filter((b) => b.type === 'text');
   const result = textBlocks.map((b) => b.text).join('\n');
 
-  console.log(`[search] Loop completado tras ${attempts} iteraciones. Resultado: ${result.slice(0, 300)}`);
+  logInfo('search',` Loop completado tras ${attempts} iteraciones. Resultado: ${result.slice(0, 300)}`);
   return result || 'No se encontraron resultados para este producto.';
 }
 
