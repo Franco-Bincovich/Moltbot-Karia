@@ -22,7 +22,6 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const path = require('path');
-const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -111,7 +110,31 @@ const upload = multer({
 //   - upload.single('file')      → Parsea multipart con multer (solo en /api/chat)
 //   - validarX + manejarErrores  → Validación de inputs con express-validator
 
-app.use(helmet({ contentSecurityPolicy: false }));
+// Content Security Policy (CSP):
+// Indica al browser qué recursos puede cargar y desde dónde. Previene XSS
+// bloqueando la ejecución de scripts, estilos y conexiones no autorizadas.
+// Estaba deshabilitado (contentSecurityPolicy: false) porque el frontend usa
+// inline styles y Google Fonts. Ahora está configurado con directives específicas
+// que permiten esos casos sin abrir la puerta a inyecciones.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      // Por defecto, solo permitir recursos del propio servidor
+      defaultSrc: ["'self'"],
+      // Scripts: solo archivos .js del servidor (public/app.js)
+      scriptSrc: ["'self'"],
+      // Estilos: servidor + Google Fonts CSS + inline styles del frontend
+      // 'unsafe-inline' es necesario porque el frontend usa style="" en SVGs y elementos dinámicos
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      // Fuentes: servidor + archivos .woff2 de Google Fonts
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      // Imágenes: servidor + data: URIs (para SVGs inline en el chat)
+      imgSrc: ["'self'", "data:"],
+      // Conexiones fetch/XHR: solo al propio servidor (API calls del frontend)
+      connectSrc: ["'self'"],
+    },
+  },
+}));
 
 app.use((req, res, next) => {
   logInfo('http', `${req.method} ${req.url}`);
@@ -191,8 +214,17 @@ function authenticateToken(req, res, next) {
  * Devuelve: { token: string (JWT 8h), usuario: { nombre, email, rol } }
  * Errores: 401 credenciales inválidas, 500 error de DB
  *
- * Flujo: email → buscar en Supabase → md5(password) → bcrypt.compare → JWT
- * El hash en DB es bcrypt(md5(contraseña)) por migración histórica de MD5 a bcrypt.
+ * Flujo: email → buscar en Supabase → bcrypt.compare(password, hash) → JWT
+ *
+ * Historial de la autenticación:
+ *   v1: passwords almacenados como MD5 directo (inseguro, sin salt)
+ *   v2: bcrypt(md5(password)) — migración parcial que mantenía compatibilidad
+ *   v3 (actual): bcrypt(password) puro — elimina el paso MD5 intermedio
+ *   Se eliminó MD5 porque reducía la entropía a 128 bits y podía causar
+ *   colisiones teóricas (dos passwords distintos generando el mismo MD5).
+ *   La migración a bcrypt puro requiere que los usuarios restablezcan su password
+ *   (ver scripts/migrarBcryptPuro.js).
+ *
  * Middlewares: loginLimiter (10 intentos/15min) → validarLogin → manejarErroresValidacion
  */
 app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, async (req, res) => {
@@ -203,7 +235,7 @@ app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, asy
   try {
     const { data: usuario, error } = await supabase
       .from('usuarios')
-      .select('id, email, nombre, rol, password_hash')
+      .select('id, email, nombre, rol, password_hash, needs_password_reset')
       .eq('email', email)
       .single();
 
@@ -216,11 +248,15 @@ app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, asy
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
 
-    // Comparar password con hash bcrypt almacenado.
-    // El hash en DB es bcrypt(md5(contraseña)), así que primero hasheamos
-    // el input con MD5 y luego comparamos contra el bcrypt almacenado.
-    const md5Input = crypto.createHash('md5').update(password).digest('hex');
-    const passwordValido = await bcrypt.compare(md5Input, usuario.password_hash);
+    // Si el usuario fue marcado para resetear password (migración de MD5+bcrypt a bcrypt puro),
+    // no puede loguearse hasta que restablezca su contraseña.
+    if (usuario.needs_password_reset) {
+      return res.status(403).json({ error: 'Tu contraseña necesita ser restablecida. Contactá al administrador.' });
+    }
+
+    // Comparar password directamente con el hash bcrypt almacenado.
+    // bcrypt.compare hashea el input con el mismo salt del hash almacenado y compara.
+    const passwordValido = await bcrypt.compare(password, usuario.password_hash);
     if (!passwordValido) {
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
@@ -412,19 +448,35 @@ app.get('/download/:filename', downloadLimiter, authenticateToken, (req, res) =>
   });
 });
 
-// === Estado del servidor ===
+// === Health check y estado del servidor ===
 
 /**
- * GET /api/status — Estado actual del servidor para monitoreo.
- * Devuelve: { cola, supabase, uptime, version }
- * No requiere autenticación para facilitar health checks externos.
+ * GET /health — Health check público para Docker y load balancers.
+ * Devuelve: { status: "ok", timestamp }
+ *
+ * Público intencionalmente (sin authenticateToken) porque Docker ejecuta
+ * este endpoint cada 30 segundos desde dentro del container, donde no hay
+ * un JWT disponible. Solo confirma que el servidor responde — no expone
+ * métricas ni datos internos.
  */
-app.get('/api/status', (req, res) => {
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/**
+ * GET /api/status — Métricas internas del servidor para administradores.
+ * Devuelve: { cola, supabase, uptime, version }
+ *
+ * Requiere autenticación porque expone información interna del servidor
+ * (estado de la cola, uptime, versión) que un atacante podría usar para
+ * planificar un ataque (ej: esperar a que la cola esté llena, identificar
+ * la versión para buscar CVEs).
+ */
+app.get('/api/status', authenticateToken, (req, res) => {
   const estadoCola = obtenerEstadoCola();
   const pkg = require('../package.json');
 
   res.json({
-    // Estado de la cola de requests del chat
     cola: {
       activos: estadoCola.activos,
       enCola: estadoCola.enCola,
@@ -435,11 +487,8 @@ app.get('/api/status', (req, res) => {
       totalProcesados: estadoCola.totalProcesados,
       totalRechazados: estadoCola.totalRechazados,
     },
-    // Conexión a Supabase
     supabase: supabase ? 'conectado' : 'desconectado',
-    // Tiempo que lleva corriendo el servidor (en segundos)
     uptime: Math.floor(process.uptime()),
-    // Versión del proyecto desde package.json
     version: pkg.version,
   });
 });
