@@ -1,4 +1,20 @@
 require('dotenv').config();
+
+// === Validación de variables de entorno críticas ===
+//
+// JWT_SECRET se usa para firmar y verificar todos los tokens JWT de autenticación.
+// Si es undefined, jsonwebtoken firma con string vacío — cualquiera podría generar
+// tokens válidos sin conocer un secret. Si es muy corto (ej: "123"), es vulnerable
+// a fuerza bruta (un atacante prueba secrets hasta encontrar el correcto).
+// 32 caracteres (256 bits) es el mínimo recomendado para HMAC-SHA256 (algoritmo
+// por defecto de jsonwebtoken) y hace inviable un ataque por fuerza bruta.
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  console.error(`[${new Date().toISOString()}] [FATAL] [server] JWT_SECRET no configurado o demasiado corto (mínimo 32 caracteres).`);
+  console.error(`[${new Date().toISOString()}] [FATAL] [server] Sin un secret seguro, cualquier persona podría generar tokens de autenticación válidos.`);
+  console.error(`[${new Date().toISOString()}] [FATAL] [server] Generá uno con: node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`);
+  process.exit(1);
+}
+
 const express = require('express');
 // Protección de headers HTTP (XSS, clickjacking, MIME sniffing, etc.)
 const helmet = require('helmet');
