@@ -1,2 +1,26 @@
+# Dependencias
 node_modules
+
+# Variables de entorno
 .env
+.env.local
+.env.development
+.env.production
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos temporales
+tmp/
+*.tmp
