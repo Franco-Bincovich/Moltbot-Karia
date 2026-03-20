@@ -55,7 +55,7 @@ async function buscarContactosGmail(query) {
   // Verificar que el cliente OAuth2 esté disponible
   const auth = getAuthClient();
   if (!auth) {
-    logWarn('contactos-gmail', Cliente OAuth2 no disponible. Configurá las credenciales de Google en .env');
+    logWarn('contactos-gmail', 'Cliente OAuth2 no disponible. Configurá las credenciales de Google en .env');
     return { found: false };
   }
 
@@ -92,7 +92,7 @@ async function buscarContactosGmail(query) {
     return { found: true, unique: false, contacts: contactos, fuente: 'Gmail' };
 
   } catch (err) {
-    logError('contactos-gmail', Error al consultar People API:', err.message);
+    logError('contactos-gmail', `Error al consultar People API: ${err.message}`);
     // Si la API no está habilitada o hay un error de permisos, devolvemos not found
     // para no interrumpir el flujo del agente
     return { found: false };

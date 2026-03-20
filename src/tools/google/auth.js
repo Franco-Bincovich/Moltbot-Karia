@@ -42,8 +42,8 @@ function getAuthClient() {
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
   if (!clientId || !clientSecret || !refreshToken) {
-    logWarn('google-auth', Credenciales de Google no configuradas. Las tools de Google no estarán disponibles.');
-    logWarn('google-auth', Configurá GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y GOOGLE_REFRESH_TOKEN en .env');
+    logWarn('google-auth', 'Credenciales de Google no configuradas. Las tools de Google no estarán disponibles.');
+    logWarn('google-auth', 'Configurá GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y GOOGLE_REFRESH_TOKEN en .env');
     _configured = false;
     return null;
   }
@@ -52,7 +52,7 @@ function getAuthClient() {
   _oauth2Client.setCredentials({ refresh_token: refreshToken, scope: SCOPES.join(' ') });
   _configured = true;
 
-  logInfo('google-auth', Cliente OAuth2 configurado correctamente.');
+  logInfo('google-auth', 'Cliente OAuth2 configurado correctamente.');
   return _oauth2Client;
 }
 

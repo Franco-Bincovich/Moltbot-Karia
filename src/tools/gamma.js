@@ -215,7 +215,7 @@ async function generatePresentation(topic, details) {
   logInfo('gamma',` generationId: ${generationId}`);
 
   if (!generationId) {
-    logWarn('gamma', No se recibió generationId. Respuesta:', JSON.stringify(createData));
+    logWarn('gamma', `No se recibió generationId. Respuesta: ${JSON.stringify(createData)}`);
     if (createData.exportUrl) return `Presentación lista. Descargá el PDF acá: ${createData.exportUrl}`;
     if (createData.gammaUrl ?? createData.url) {
       return `Presentación creada. Accedela acá: ${createData.gammaUrl ?? createData.url}`;
@@ -251,7 +251,7 @@ async function generatePresentation(topic, details) {
     logInfo('gamma',` status: ${statusData.status}`);
 
     if (statusData.status === 'completed') {
-      logInfo('gamma', Respuesta completa al completarse:', JSON.stringify(statusData));
+      logInfo('gamma', `Respuesta completa al completarse: ${JSON.stringify(statusData)}`);
       const exportUrl = statusData.exportUrl;
       const gammaUrl = statusData.gammaUrl ?? statusData.url;
 
@@ -276,7 +276,7 @@ async function generatePresentation(topic, details) {
         }
       }
       if (gammaUrl) return `Presentación creada. Accedela acá: ${gammaUrl}`;
-      logWarn('gamma', completed sin ninguna URL disponible.');
+      logWarn('gamma', 'completed sin ninguna URL disponible.');
     }
 
     if (statusData.status === 'failed') {
