@@ -62,7 +62,7 @@ async function searchCompetitors(query) {
   let result = textBlocks.map((b) => b.text).join('\n');
 
   if (!result.trim()) {
-    logWarn('search', Respuesta vacía de Claude web_search');
+    logWarn('search', 'Respuesta vacía de Claude web_search');
 
     // Si stop_reason es tool_use, necesitamos continuar el loop
     if (response.stop_reason === 'tool_use') {
