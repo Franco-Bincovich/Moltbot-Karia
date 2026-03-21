@@ -2,7 +2,7 @@ const { logInfo, logWarn, logError } = require('../../utils/logger');
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
   'Accept-Encoding': 'gzip, deflate, br',
   'Connection': 'keep-alive',
@@ -20,56 +20,105 @@ function formatearPrecio(raw) {
 }
 
 /**
- * Extrae el SKU numérico del URL de producto de OnCity.
- * Ejemplo: https://www.oncity.com/smart-led-tv-...-153972/p → "153972"
- */
-function extraerSku(url) {
-  const match = url.match(/-(\d+)\/p/);
-  return match ? match[1] : null;
-}
-
-/**
- * Consulta la API de catálogo VTEX de OnCity y devuelve el precio de venta.
- * Ruta: /api/catalog_system/pub/products/search?fq=productId:SKU
- * Precio en: items[0].sellers[0].commertialOffer.Price
+ * Extrae precio de una página de producto de OnCity.
+ * Estrategias en orden de confiabilidad:
+ *   1. JSON-LD schema.org (offers.price)
+ *   2. VTEX __STATE__ JSON embebido
+ *   3. Regex sobre clase vtex-product-price / sellingPrice
  *
  * @param {string} url - URL del producto en oncity.com
  * @returns {string|null} Precio formateado (ej: "$249.499") o null si falla
  */
 async function scrapeOnCity(url) {
-  const sku = extraerSku(url);
-  if (!sku) {
-    logWarn('scraper-oncity', `No se pudo extraer SKU de: ${url}`);
-    return null;
-  }
-
-  const apiUrl = `https://www.oncity.com/api/catalog_system/pub/products/search?fq=productId:${sku}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
   try {
-    logInfo('scraper-oncity', `API call SKU ${sku}: ${apiUrl}`);
-    const res = await fetch(apiUrl, { headers: HEADERS, signal: controller.signal });
+    logInfo('scraper-oncity', `Scraping: ${url}`);
+    const res = await fetch(url, { headers: HEADERS, signal: controller.signal });
 
     if (!res.ok) {
-      logWarn('scraper-oncity', `HTTP ${res.status} para SKU ${sku}`);
+      logWarn('scraper-oncity', `HTTP ${res.status} para ${url}`);
       return null;
     }
 
-    const data = await res.json();
+    const html = await res.text();
 
-    const price = data?.[0]?.items?.[0]?.sellers?.[0]?.commertialOffer?.Price;
-    if (!price) {
-      logWarn('scraper-oncity', `Precio no encontrado en respuesta API para SKU ${sku}`);
-      return null;
+    logInfo('scraper-oncity', 'HTML preview: ' + html.substring(0, 2000));
+
+    // Estrategia 0: "sellingPrice":NUMERO en cualquier script tag (VTEX en centavos)
+    const scriptMatches = html.matchAll(/<script[\s\S]*?>([\s\S]*?)<\/script>/gi);
+    for (const m of scriptMatches) {
+      const sellingMatch = m[1].match(/"sellingPrice"\s*:\s*([\d]+)/);
+      if (sellingMatch) {
+        const formateado = formatearPrecio(parseInt(sellingMatch[1], 10) / 100);
+        if (formateado) {
+          logInfo('scraper-oncity', `Precio por sellingPrice en script: ${formateado}`);
+          return formateado;
+        }
+      }
     }
 
-    const formateado = formatearPrecio(price);
-    logInfo('scraper-oncity', `Precio OK SKU ${sku}: ${formateado}`);
-    return formateado;
+    // Estrategia 1: JSON-LD con @type Product
+    const jsonLdMatches = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+    for (const m of jsonLdMatches) {
+      try {
+        const data = JSON.parse(m[1]);
+        const entries = Array.isArray(data) ? data : [data];
+        for (const entry of entries) {
+          const price = entry?.offers?.price ?? entry?.offers?.[0]?.price;
+          if (price) {
+            const formateado = formatearPrecio(price);
+            if (formateado) {
+              logInfo('scraper-oncity', `Precio por JSON-LD: ${formateado}`);
+              return formateado;
+            }
+          }
+        }
+      } catch (_) { /* JSON inválido, continuar */ }
+    }
+
+    // Estrategia 2: VTEX __STATE__ embebido
+    const stateMatch = html.match(/window\.__STATE__\s*=\s*({[\s\S]*?})(?:<\/script>|;)/);
+    if (stateMatch) {
+      try {
+        const state = JSON.parse(stateMatch[1]);
+        for (const key of Object.keys(state)) {
+          const node = state[key];
+          if (node?.sellingPrice) {
+            const formateado = formatearPrecio(node.sellingPrice / 100); // VTEX guarda en centavos
+            if (formateado) {
+              logInfo('scraper-oncity', `Precio por __STATE__: ${formateado}`);
+              return formateado;
+            }
+          }
+        }
+      } catch (_) { /* JSON inválido, continuar */ }
+    }
+
+    // Estrategia 3: regex sobre clases conocidas de OnCity / VTEX
+    // Patrón de precio completo en formato argentino: $359.999 o $1.359.999
+    const patterns = [
+      /class="[^"]*vtex-product-price[^"]*"[^>]*>[\s\S]{0,100}?(\$[\d]{1,3}(?:\.[\d]{3})+)/,
+      /class="[^"]*sellingPrice[^"]*"[^>]*>[\s\S]{0,100}?(\$[\d]{1,3}(?:\.[\d]{3})+)/,
+      /"sellingPrice"\s*:\s*([\d]+)/,
+    ];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match) {
+        const formateado = formatearPrecio(match[1]);
+        if (formateado) {
+          logInfo('scraper-oncity', `Precio por regex: ${formateado}`);
+          return formateado;
+        }
+      }
+    }
+
+    logWarn('scraper-oncity', `No se encontró precio en ${url}`);
+    return null;
   } catch (err) {
     if (err.name === 'AbortError') {
-      logWarn('scraper-oncity', `Timeout (5s) para SKU ${sku}`);
+      logWarn('scraper-oncity', `Timeout (5s) para ${url}`);
     } else {
       logError('scraper-oncity', `Error: ${err.message}`);
     }
