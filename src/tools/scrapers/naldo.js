@@ -44,14 +44,15 @@ async function scrapeNaldo(url) {
 
     const html = await res.text();
 
-    // Estrategia 1: JSON-LD con @type Product
+    // Estrategia 1: JSON-LD con @type Product — offers.price y priceSpecification.price
     const jsonLdMatches = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
     for (const m of jsonLdMatches) {
       try {
         const data = JSON.parse(m[1]);
         const entries = Array.isArray(data) ? data : [data];
         for (const entry of entries) {
-          const price = entry?.offers?.price ?? entry?.offers?.[0]?.price;
+          const offer = Array.isArray(entry?.offers) ? entry.offers[0] : entry?.offers;
+          const price = offer?.priceSpecification?.price ?? offer?.price;
           if (price) {
             const formateado = formatearPrecio(price);
             if (formateado) {
@@ -70,9 +71,8 @@ async function scrapeNaldo(url) {
         const state = JSON.parse(stateMatch[1]);
         for (const key of Object.keys(state)) {
           const node = state[key];
-          if (node?.sellingPrice || node?.['sellingPrice']) {
-            const raw = node.sellingPrice;
-            const formateado = formatearPrecio(raw / 100); // VTEX guarda en centavos
+          if (node?.sellingPrice) {
+            const formateado = formatearPrecio(node.sellingPrice / 100); // VTEX guarda en centavos
             if (formateado) {
               logInfo('scraper-naldo', `Precio por __STATE__: ${formateado}`);
               return formateado;
@@ -82,18 +82,38 @@ async function scrapeNaldo(url) {
       } catch (_) { /* JSON inválido, continuar */ }
     }
 
-    // Estrategia 3: regex sobre clases conocidas de Naldo / VTEX
+    // Estrategia 3: "sellingPrice":NUMERO o "price":NUMERO en cualquier script tag
+    const scriptMatches = html.matchAll(/<script[\s\S]*?>([\s\S]*?)<\/script>/gi);
+    for (const m of scriptMatches) {
+      const sellingMatch = m[1].match(/"sellingPrice"\s*:\s*([\d]+)/);
+      if (sellingMatch) {
+        const formateado = formatearPrecio(parseInt(sellingMatch[1], 10) / 100); // VTEX en centavos
+        if (formateado) {
+          logInfo('scraper-naldo', `Precio por script sellingPrice: ${formateado}`);
+          return formateado;
+        }
+      }
+      const priceMatch = m[1].match(/"price"\s*:\s*"?([\d]+(?:\.\d+)?)"?/);
+      if (priceMatch) {
+        const formateado = formatearPrecio(priceMatch[1]);
+        if (formateado) {
+          logInfo('scraper-naldo', `Precio por script price: ${formateado}`);
+          return formateado;
+        }
+      }
+    }
+
+    // Estrategia 4: regex sobre clases conocidas de Naldo / VTEX
     const patterns = [
-      /class="[^"]*prices-main-price[^"]*"[^>]*>[\s\S]{0,100}?([\$\d][\d.,]+)/,
-      /class="[^"]*sellingPrice[^"]*"[^>]*>[\s\S]{0,100}?([\$\d][\d.,]+)/,
-      /"sellingPrice"\s*:\s*([\d.]+)/,
+      /class="[^"]*prices-main-price[^"]*"[^>]*>[\s\S]{0,100}?(\$[\d]{1,3}(?:\.[\d]{3})+)/,
+      /class="[^"]*sellingPrice[^"]*"[^>]*>[\s\S]{0,100}?(\$[\d]{1,3}(?:\.[\d]{3})+)/,
     ];
     for (const pattern of patterns) {
       const match = html.match(pattern);
       if (match) {
         const formateado = formatearPrecio(match[1]);
         if (formateado) {
-          logInfo('scraper-naldo', `Precio por regex: ${formateado}`);
+          logInfo('scraper-naldo', `Precio por regex clase: ${formateado}`);
           return formateado;
         }
       }

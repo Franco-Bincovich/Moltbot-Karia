@@ -82,10 +82,11 @@ async function scrapeOnCity(url) {
     }
 
     // Estrategia 3: regex sobre clases conocidas de OnCity / VTEX
+    // Patrón de precio completo en formato argentino: $359.999 o $1.359.999
     const patterns = [
-      /class="[^"]*vtex-product-price[^"]*"[^>]*>[\s\S]{0,100}?([\$\d][\d.,]+)/,
-      /class="[^"]*sellingPrice[^"]*"[^>]*>[\s\S]{0,100}?([\$\d][\d.,]+)/,
-      /"sellingPrice"\s*:\s*([\d.]+)/,
+      /class="[^"]*vtex-product-price[^"]*"[^>]*>[\s\S]{0,100}?(\$[\d]{1,3}(?:\.[\d]{3})+)/,
+      /class="[^"]*sellingPrice[^"]*"[^>]*>[\s\S]{0,100}?(\$[\d]{1,3}(?:\.[\d]{3})+)/,
+      /"sellingPrice"\s*:\s*([\d]+)/,
     ];
     for (const pattern of patterns) {
       const match = html.match(pattern);
