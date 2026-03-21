@@ -1,5 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { logInfo, logWarn } = require('../utils/logger');
+const { scrapeNaldo } = require('./scrapers/naldo');
+const { scrapeOnCity } = require('./scrapers/oncity');
 
 const client = new Anthropic();
 
@@ -10,17 +12,50 @@ TIENDAS:
 - Si NO menciona tienda: buscá libremente priorizando OnCity, Genecio Hogar, Naldo, Cetrogar, Fravega, Megatone. Máximo 1 producto por tienda, máximo 3 tiendas.
 - Si pidió una tienda y no encontrás el producto ahí, decilo: "No encontré este producto en [tienda]".
 - Cuando busques precios en comercios, solo devolvé resultados de tiendas que existan y estén operativas hoy. Si al buscar un comercio el sitio no carga, está caído, o los resultados indican que la empresa cerró o ya no opera, no lo incluyas en la respuesta. Nunca inventes ni asumas que una tienda sigue operando.
-- NUNCA inventes, estimes ni supongas precios o modelos. Solo incluí en la tabla datos que hayas encontrado explícitamente en los resultados de búsqueda. Si solo encontrás un producto, devolvé solo ese producto. Si no encontrás ninguno con precio verificado, respondé que no se encontraron resultados disponibles en este momento.
-- Si la primera búsqueda en una tienda no da resultados, intentá con una query más amplia antes de rendirte. Ejemplo: si "heladera Samsung Ama Hogar" no da resultados, intentá "Samsung Ama Hogar" o "heladeras Ama Hogar".
-- Si encontrás al menos un producto en una tienda, hacé una segunda búsqueda para encontrar más modelos disponibles antes de armar la tabla. El objetivo es mostrar todos los productos disponibles, no solo el primero encontrado.
+- NUNCA inventes, estimes ni supongas precios o modelos. Solo incluí datos que aparezcan explícitamente en los resultados de búsqueda.
 
 FORMATO:
 - Tabla con SOLO 3 columnas: Tienda | Precio | Link
-- LINKS: Preferí la URL exacta del producto. Si no tenés la URL exacta del producto, usá la URL de búsqueda de esa tienda (ej: https://www.fravega.com/l/?keyword=NOMBRE+PRODUCTO, https://www.amahogar.com.ar/buscar?controller=search&s=NOMBRE+PRODUCTO). NUNCA uses URL de home ni de categorías genéricas. Para Ama Hogar específicamente: el link SIEMPRE debe ser https://www.amahogar.com.ar/buscar?controller=search&s=NOMBRE+PRODUCTO con el nombre del producto y espacios reemplazados por +. La única excepción es si la URL del producto aparece textualmente en los resultados de búsqueda web — en ese caso usarla tal cual. NUNCA construyas ni inferras URLs de producto de Ama Hogar por tu cuenta.
-- Si no encontrás precio de un producto en una tienda, NO incluyas esa tienda en la tabla. Solo incluí filas con precio real encontrado.
-- Precios en pesos argentinos. Si hay cuotas sin interés, agregalo al lado del precio.
+- LINKS: DEBE ser la URL EXACTA de la página del producto específico. NUNCA uses URL de listados, categorías ni home. Si no tenés la URL exacta, poné "No disponible".
+- Precios en pesos argentinos. SOLO precio de contado final. Si hay precio tachado + precio con descuento, mostrar ÚNICAMENTE el precio final (el más bajo). NUNCA mostrar cuotas, financiación ni descuentos porcentuales (ej: 18% OFF) salvo que el usuario lo pida explícitamente.
+- Para Genecio Hogar: si no encontrás precio específico, incluir igual la fila con precio "Ver en tienda" y link https://www.geneciohogar.com.ar/buscar?q=PRODUCTO. No omitir la tienda aunque no haya precio.
 - NO agregues texto antes de la tabla.
 - SIEMPRE agregá esta aclaración al final de la tabla: "* Precios consultados al momento de la búsqueda. Verificar precio actual en el link del producto."`;
+
+/**
+ * Para cada fila de la tabla que tenga link de Naldo u OnCity, llama al scraper
+ * correspondiente y reemplaza el precio si lo encuentra. Si el scraper falla,
+ * deja el precio original intacto. Los scrapers corren en paralelo.
+ */
+async function enriquecerConScrapers(resultado) {
+  const lineas = resultado.split('\n');
+
+  const actualizadas = await Promise.all(lineas.map(async (linea) => {
+    if (!linea.startsWith('|')) return linea;
+
+    const partes = linea.split('|');
+    // partes: ['', ' Tienda ', ' Precio ', ' Link ', '']
+    if (partes.length < 4) return linea;
+
+    const linkCol = partes[3].trim();
+    const naldoMatch = linkCol.match(/https?:\/\/(?:www\.)?naldo\.com\.ar\S*/);
+    const oncityMatch = linkCol.match(/https?:\/\/(?:www\.)?oncity\.com\S*/);
+
+    let precio = null;
+    if (naldoMatch) {
+      precio = await scrapeNaldo(naldoMatch[0].replace(/[|>].*$/, ''));
+    } else if (oncityMatch) {
+      precio = await scrapeOnCity(oncityMatch[0].replace(/[|>].*$/, ''));
+    }
+
+    if (!precio) return linea;
+
+    partes[2] = ` ${precio} `;
+    return partes.join('|');
+  }));
+
+  return actualizadas.join('\n');
+}
 
 /**
  * Busca precios de electrodomésticos usando la búsqueda web nativa de Claude.
@@ -30,7 +65,7 @@ FORMATO:
  */
 async function searchCompetitors(query) {
   // Detectar si el query incluye nombres de tiendas específicas
-  const KNOWN_STORES = ['fravega', 'frávega', 'naldo', 'cetrogar', 'musimundo', 'megatone', 'oncity', 'on city', 'genecio', 'mercadolibre', 'mercado libre', 'ama hogar', 'amahogar'];
+  const KNOWN_STORES = ['fravega', 'frávega', 'naldo', 'cetrogar', 'musimundo', 'megatone', 'oncity', 'on city', 'genecio', 'mercadolibre', 'mercado libre', 'ama hogar', 'amahogar', 'rivera hogar', 'riverahogar', 'musicalísimo', 'musicalisimo'];
   const queryLower = query.toLowerCase();
   const mentionedStores = KNOWN_STORES.filter((s) => queryLower.includes(s));
 
@@ -75,6 +110,8 @@ async function searchCompetitors(query) {
       return 'No se encontraron resultados para este producto.';
     }
   }
+
+  result = await enriquecerConScrapers(result);
 
   // Truncar resultado a 1500 chars para evitar rate limit en el agente
   const MAX_CHARS = 1500;

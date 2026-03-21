@@ -11,7 +11,9 @@
       "Bash(node -c src/agent.js)",
       "Bash(node -c src/tools/search.js)",
       "Bash(/usr/local/bin/node -c src/agent.js)",
-      "Bash(/opt/homebrew/bin/node -c src/agent.js)"
+      "Bash(/opt/homebrew/bin/node -c src/agent.js)",
+      "Bash(node -e \"require\\(''''node-fetch''''\\)\")",
+      "Bash(node -e \"fetch\\(''''https://example.com''''\\).then\\(r => console.log\\(''''fetch nativo OK'''', r.status\\)\\).catch\\(e => console.log\\(''''fetch nativo ERROR'''', e.message\\)\\)\")"
     ]
   }
 }
