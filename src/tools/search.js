@@ -10,10 +10,14 @@ TIENDAS:
 - Si NO menciona tienda: buscá libremente priorizando OnCity, Genecio Hogar, Naldo, Cetrogar, Fravega, Megatone. Máximo 1 producto por tienda, máximo 3 tiendas.
 - Si pidió una tienda y no encontrás el producto ahí, decilo: "No encontré este producto en [tienda]".
 - Cuando busques precios en comercios, solo devolvé resultados de tiendas que existan y estén operativas hoy. Si al buscar un comercio el sitio no carga, está caído, o los resultados indican que la empresa cerró o ya no opera, no lo incluyas en la respuesta. Nunca inventes ni asumas que una tienda sigue operando.
+- NUNCA inventes, estimes ni supongas precios o modelos. Solo incluí en la tabla datos que hayas encontrado explícitamente en los resultados de búsqueda. Si solo encontrás un producto, devolvé solo ese producto. Si no encontrás ninguno con precio verificado, respondé que no se encontraron resultados disponibles en este momento.
+- Si la primera búsqueda en una tienda no da resultados, intentá con una query más amplia antes de rendirte. Ejemplo: si "heladera Samsung Ama Hogar" no da resultados, intentá "Samsung Ama Hogar" o "heladeras Ama Hogar".
+- Si encontrás al menos un producto en una tienda, hacé una segunda búsqueda para encontrar más modelos disponibles antes de armar la tabla. El objetivo es mostrar todos los productos disponibles, no solo el primero encontrado.
 
 FORMATO:
 - Tabla con SOLO 3 columnas: Tienda | Precio | Link
-- LINKS: DEBE ser la URL EXACTA de la página del producto específico. NUNCA uses URL de listados, categorías ni home. Si no tenés la URL exacta, poné "No disponible".
+- LINKS: Preferí la URL exacta del producto. Si no tenés la URL exacta del producto, usá la URL de búsqueda de esa tienda (ej: https://www.fravega.com/l/?keyword=NOMBRE+PRODUCTO, https://www.amahogar.com.ar/buscar?controller=search&s=NOMBRE+PRODUCTO). NUNCA uses URL de home ni de categorías genéricas. Para Ama Hogar específicamente: el link SIEMPRE debe ser https://www.amahogar.com.ar/buscar?controller=search&s=NOMBRE+PRODUCTO con el nombre del producto y espacios reemplazados por +. La única excepción es si la URL del producto aparece textualmente en los resultados de búsqueda web — en ese caso usarla tal cual. NUNCA construyas ni inferras URLs de producto de Ama Hogar por tu cuenta.
+- Si no encontrás precio de un producto en una tienda, NO incluyas esa tienda en la tabla. Solo incluí filas con precio real encontrado.
 - Precios en pesos argentinos. Si hay cuotas sin interés, agregalo al lado del precio.
 - NO agregues texto antes de la tabla.
 - SIEMPRE agregá esta aclaración al final de la tabla: "* Precios consultados al momento de la búsqueda. Verificar precio actual en el link del producto."`;
@@ -26,7 +30,7 @@ FORMATO:
  */
 async function searchCompetitors(query) {
   // Detectar si el query incluye nombres de tiendas específicas
-  const KNOWN_STORES = ['fravega', 'frávega', 'naldo', 'cetrogar', 'musimundo', 'megatone', 'oncity', 'on city', 'genecio', 'mercadolibre', 'mercado libre'];
+  const KNOWN_STORES = ['fravega', 'frávega', 'naldo', 'cetrogar', 'musimundo', 'megatone', 'oncity', 'on city', 'genecio', 'mercadolibre', 'mercado libre', 'ama hogar', 'amahogar'];
   const queryLower = query.toLowerCase();
   const mentionedStores = KNOWN_STORES.filter((s) => queryLower.includes(s));
 
