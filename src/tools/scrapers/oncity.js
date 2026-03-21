@@ -81,7 +81,40 @@ async function scrapeOnCity(url) {
       } catch (_) { /* JSON inválido, continuar */ }
     }
 
-    // Estrategia 3: regex sobre clases conocidas de OnCity / VTEX
+    // Estrategia 3: "sellingPrice":NUMERO en cualquier script tag (VTEX en centavos)
+    const scriptMatches = html.matchAll(/<script[\s\S]*?>([\s\S]*?)<\/script>/gi);
+    for (const m of scriptMatches) {
+      const sellingMatch = m[1].match(/"sellingPrice"\s*:\s*([\d]+)/);
+      if (sellingMatch) {
+        const formateado = formatearPrecio(parseInt(sellingMatch[1], 10) / 100);
+        if (formateado) {
+          logInfo('scraper-oncity', `Precio por script sellingPrice: ${formateado}`);
+          return formateado;
+        }
+      }
+      if (/__STATE__|vtex/i.test(m[1])) {
+        const priceMatch = m[1].match(/"price"\s*:\s*"?([\d]+(?:\.\d+)?)"?/);
+        if (priceMatch) {
+          const formateado = formatearPrecio(priceMatch[1]);
+          if (formateado) {
+            logInfo('scraper-oncity', `Precio por script price: ${formateado}`);
+            return formateado;
+          }
+        }
+      }
+    }
+
+    // Estrategia 4: data-price="NUMERO" en el HTML
+    const dataPriceMatch = html.match(/data-price="([\d]+(?:\.\d+)?)"/);
+    if (dataPriceMatch) {
+      const formateado = formatearPrecio(dataPriceMatch[1]);
+      if (formateado) {
+        logInfo('scraper-oncity', `Precio por data-price: ${formateado}`);
+        return formateado;
+      }
+    }
+
+    // Estrategia 5: regex sobre clases conocidas de OnCity / VTEX
     // Patrón de precio completo en formato argentino: $359.999 o $1.359.999
     const patterns = [
       /class="[^"]*vtex-product-price[^"]*"[^>]*>[\s\S]{0,100}?(\$[\d]{1,3}(?:\.[\d]{3})+)/,
