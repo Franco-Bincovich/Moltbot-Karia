@@ -46,6 +46,19 @@ async function scrapeOnCity(url) {
 
     logInfo('scraper-oncity', 'HTML preview: ' + html.substring(0, 2000));
 
+    // Estrategia 0: "sellingPrice":NUMERO en cualquier script tag (VTEX en centavos)
+    const scriptMatches = html.matchAll(/<script[\s\S]*?>([\s\S]*?)<\/script>/gi);
+    for (const m of scriptMatches) {
+      const sellingMatch = m[1].match(/"sellingPrice"\s*:\s*([\d]+)/);
+      if (sellingMatch) {
+        const formateado = formatearPrecio(parseInt(sellingMatch[1], 10) / 100);
+        if (formateado) {
+          logInfo('scraper-oncity', `Precio por sellingPrice en script: ${formateado}`);
+          return formateado;
+        }
+      }
+    }
+
     // Estrategia 1: JSON-LD con @type Product
     const jsonLdMatches = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
     for (const m of jsonLdMatches) {
