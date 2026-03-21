@@ -44,6 +44,8 @@ async function scrapeOnCity(url) {
 
     const html = await res.text();
 
+    logInfo('scraper-oncity', 'HTML preview: ' + html.substring(0, 2000));
+
     // Estrategia 1: JSON-LD con @type Product
     const jsonLdMatches = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
     for (const m of jsonLdMatches) {
