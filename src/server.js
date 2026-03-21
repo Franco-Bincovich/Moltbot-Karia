@@ -266,7 +266,13 @@ app.post('/api/login', loginLimiter, validarLogin, manejarErroresValidacion, asy
 
     // Comparar password directamente con el hash bcrypt almacenado.
     // bcrypt.compare hashea el input con el mismo salt del hash almacenado y compara.
+    if (email === 'hernan.bincovich@gmail.com') {
+      logInfo('auth', `[DIAG] password_hash leído de Supabase: ${usuario.password_hash}`);
+    }
     const passwordValido = await bcrypt.compare(password, usuario.password_hash);
+    if (email === 'hernan.bincovich@gmail.com') {
+      logInfo('auth', `[DIAG] bcrypt.compare resultado: ${passwordValido}`);
+    }
     if (!passwordValido) {
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
